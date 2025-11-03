@@ -9,7 +9,7 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
-    EmbedBuilder, // ** [เพิ่ม] สำหรับข้อความ Welcome/Farewell แบบสวยงาม **
+    EmbedBuilder, // สำหรับข้อความ Welcome/Farewell แบบสวยงาม
 } = require("discord.js");
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
@@ -40,7 +40,8 @@ let CONFIG = {
     CHANNEL_IDS: (process.env.CHANNEL_IDS || '').split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)),
     BATCH_DELAY: parseInt(process.env.BATCH_DELAY || '500'),
     
-    // ** สำหรับบอทต้อนรับ/อำลา ** WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '0', 
+    // สำหรับบอทต้อนรับ/อำลา 
+    WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '0', 
 };
 
 // **ลบฟังก์ชัน saveConfig() ออก หรือทำให้มันไม่มีผลบน Render**
@@ -74,7 +75,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers, // ** [สำคัญ] ต้องมีเพื่อรับ Event เข้า/ออก ** ],
+        GatewayIntentBits.GuildMembers, // ** [สำคัญ] ต้องมีเพื่อรับ Event เข้า/ออก **
+    ], // <<-- [แก้ไข Syntax Error] ต้องปิด Array Intents ด้วย `]`
 });
 
 // =========================================================
@@ -170,7 +172,7 @@ async function batchUpdateMentions(batchMap, channelIndex) {
 
 
 // =========================================================
-// 💬 DISCORD MESSAGE PROCESSING (ไม่เปลี่ยนแปลง)
+// 💬 DISCORD MESSAGE PROCESSING (นับสถิติ)
 // =========================================================
 
 async function processMessagesBatch(messages, channelIndex) {
@@ -242,7 +244,7 @@ async function processOldMessages(channelId, channelIndex) {
 }
 
 // =========================================================
-// 🔔 WELCOME / FAREWELL HANDLERS (อัปเดตเป็น Embed)
+// 🔔 WELCOME / FAREWELL HANDLERS (Embed + Delay)
 // =========================================================
 
 // 1. Event: สมาชิกเข้าเซิร์ฟเวอร์ (Welcome) - พร้อม Delay 3 วินาที
@@ -391,7 +393,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setCustomId(CONFIG_MODAL_ID)
             .setTitle('⚙️ ตั้งค่า Google Sheet & Channel');
 
-        // *** การแก้ไข: รวม 3 ช่องเป็น 1 ช่อง ***
         const allChannelIds = CONFIG.CHANNEL_IDS.join(', ') || ''; 
 
         const spreadsheetIdInput = new TextInputBuilder()
@@ -433,13 +434,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input').trim();
             const newSheetName = interaction.fields.getTextInputValue('sheet_name_input').trim();
             
-            // *** การแก้ไข: รับค่าจากช่องรวมเพียงช่องเดียว ***
             const combinedChannelIdsInput = interaction.fields.getTextInputValue('channel_ids_combined_input').trim();
 
-            let newChannelIds = combinedChannelIdsInput.split(',') // แยกด้วยคอมมา
-                .map(id => id.trim()) // ลบช่องว่างหน้า/หลัง
-                .filter(id => id.length > 10 && !isNaN(id)) // กรองเฉพาะ ID ที่ถูกต้อง
-                .slice(0, MAX_CHANNELS); // จำกัดจำนวน Channel IDs สูงสุด
+            let newChannelIds = combinedChannelIdsInput.split(',') 
+                .map(id => id.trim()) 
+                .filter(id => id.length > 10 && !isNaN(id)) 
+                .slice(0, MAX_CHANNELS); 
 
             if (newChannelIds.length === 0) {
                  return await interaction.editReply({ 
