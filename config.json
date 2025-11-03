@@ -1,10 +1,10 @@
 {
-    "SPREADSHEET_ID": "18Thz-4LBvkwn77gMEUDxL19sh0t1WXAOoh408UJ5BSY",
-    "SHEET_NAME": "bot3",
+    "SPREADSHEET_ID": "",
+    "SHEET_NAME": "",
     "CHANNEL_IDS": [
-        "1433711710031712296",
-        "1433711742218666004",
-        "1434435487711498320"
+        "",
+        "",
+        ""
     ],
     "COMMAND_CHANNEL_ID": "1433711682143780936",
     "BATCH_DELAY": 150,
