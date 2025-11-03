@@ -1,10 +1,10 @@
 {
-    "SPREADSHEET_ID": "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ",
-    "SHEET_NAME": "test",
+    "SPREADSHEET_ID": "",
+    "SHEET_NAME": "",
     "CHANNEL_IDS": [
-        "1433442881007259649",
-        "1433443588343337132",
-        "1433443676486631436"
+        "9",
+        "2",
+        "2"
     ],
     "BATCH_DELAY": 150,
     "UPDATE_DELAY": 50
