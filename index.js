@@ -9,6 +9,7 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
+    EmbedBuilder, // ** [เพิ่ม] สำหรับข้อความ Welcome/Farewell แบบสวยงาม **
 } = require("discord.js");
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
@@ -39,8 +40,7 @@ let CONFIG = {
     CHANNEL_IDS: (process.env.CHANNEL_IDS || '').split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)),
     BATCH_DELAY: parseInt(process.env.BATCH_DELAY || '500'),
     
-    // ** สำหรับบอทต้อนรับ/อำลา ** (ยังคงอยู่)
-    WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '0', 
+    // ** สำหรับบอทต้อนรับ/อำลา ** WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '0', 
 };
 
 // **ลบฟังก์ชัน saveConfig() ออก หรือทำให้มันไม่มีผลบน Render**
@@ -74,8 +74,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers, // ** [สำคัญ] ต้องมีเพื่อรับ Event เข้า/ออก ** (ยังคงอยู่)
-    ],
+        GatewayIntentBits.GuildMembers, // ** [สำคัญ] ต้องมีเพื่อรับ Event เข้า/ออก ** ],
 });
 
 // =========================================================
@@ -171,7 +170,7 @@ async function batchUpdateMentions(batchMap, channelIndex) {
 
 
 // =========================================================
-// 💬 DISCORD MESSAGE PROCESSING
+// 💬 DISCORD MESSAGE PROCESSING (ไม่เปลี่ยนแปลง)
 // =========================================================
 
 async function processMessagesBatch(messages, channelIndex) {
@@ -243,33 +242,50 @@ async function processOldMessages(channelId, channelIndex) {
 }
 
 // =========================================================
-// 🔔 WELCOME / FAREWELL HANDLERS (ยังคงอยู่)
+// 🔔 WELCOME / FAREWELL HANDLERS (อัปเดตเป็น Embed)
 // =========================================================
 
+// 1. Event: สมาชิกเข้าเซิร์ฟเวอร์ (Welcome) - พร้อม Delay 3 วินาที
 client.on('guildMemberAdd', member => {
-    const welcomeChannelId = CONFIG.WELCOME_CHANNEL_ID;
-    
-    // ตรวจสอบว่าได้ตั้งค่า Channel ID หรือไม่
-    if (welcomeChannelId === '0') return; 
+    if (CONFIG.WELCOME_CHANNEL_ID === '0') return;
 
-    const channel = member.guild.channels.cache.get(welcomeChannelId);
+    const channel = member.guild.channels.cache.get(CONFIG.WELCOME_CHANNEL_ID);
 
     if (channel && channel.isTextBased()) {
-        const welcomeMessage = `👋 ยินดีต้อนรับ ${member} สู่เซิร์ฟเวอร์! อย่าลืมอ่านกฎด้วยนะ!`;
-        channel.send(welcomeMessage);
+        
+        setTimeout(() => {
+            
+            const welcomeEmbed = new EmbedBuilder()
+                .setColor('#00ff99') 
+                .setTitle(`🎉 ยินดีต้อนรับสู่ ${member.guild.name}!`)
+                .setDescription(`# สวัสดี ${member}! ยินดีที่สอบผ่าน กรอกข้อมูลห้องแนะนำตัวได้เลยครับ`)
+                .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 })) 
+                .setTimestamp()
+            
+            channel.send({ content: `Hey ${member}!`, embeds: [welcomeEmbed] })
+                .catch(err => console.error("Error sending welcome message:", err));
+                
+        }, 3000); // หน่วง 3 วินาที
     }
 });
 
+
+// 2. Event: สมาชิกออกจากเซิร์ฟเวอร์ (Farewell)
 client.on('guildMemberRemove', member => {
-    const welcomeChannelId = CONFIG.WELCOME_CHANNEL_ID;
+    if (CONFIG.WELCOME_CHANNEL_ID === '0') return;
+
+    const channel = member.guild.channels.cache.get(CONFIG.WELCOME_CHANNEL_ID);
     
-    if (welcomeChannelId === '0') return;
-
-    const channel = member.guild.channels.cache.get(welcomeChannelId);
-
     if (channel && channel.isTextBased()) {
-        const farewellMessage = `😭 ลาก่อน ${member.user.tag} (${member.displayName}) หวังว่าจะได้พบกันอีกนะ`;
-        channel.send(farewellMessage);
+        const farewellEmbed = new EmbedBuilder()
+            .setColor('#ff0000') 
+            .setTitle(`😭 ${member.user.tag} ได้ออกจากเซิร์ฟเวอร์ไปแล้ว`)
+            .setDescription(`# เสียใจด้วยคุณไม่ได้ไปต่อ ${member.displayName || member.user.username} ไว้เจอกันคร๊าฟ!`)
+            .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 })) 
+            .setTimestamp()
+
+        channel.send({ embeds: [farewellEmbed] })
+            .catch(err => console.error("Error sending farewell message:", err));
     }
 });
 
@@ -305,7 +321,7 @@ function getStartCountMessage() {
 }
 
 client.once(Events.ClientReady, async () => {
-    console.log(`Logged in as ${client.user.tag}`);
+    console.log(`✅ Logged in as ${client.user.tag}!`);
 
     // (ส่วนนี้ใช้ได้สำหรับบอทนับข้อความ)
     try {
@@ -393,16 +409,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setValue(CONFIG.SHEET_NAME);
             
         const channelInputCombined = new TextInputBuilder()
-            .setCustomId('channel_ids_combined_input') // *** ใช้ Custom ID ใหม่ ***
+            .setCustomId('channel_ids_combined_input') 
             .setLabel("Channel IDs (ป้อนหลาย ID คั่นด้วยคอมมา , )")
-            .setStyle(TextInputStyle.Paragraph) // *** ใช้ Paragraph Style เพื่อให้ป้อนได้หลาย ID ***
+            .setStyle(TextInputStyle.Paragraph) 
             .setRequired(true)
-            .setValue(allChannelIds); // ใช้ค่าที่รวมแล้ว
+            .setValue(allChannelIds); 
 
         modal.addComponents(
             new ActionRowBuilder().addComponents(spreadsheetIdInput),
             new ActionRowBuilder().addComponents(sheetNameInput),
-            new ActionRowBuilder().addComponents(channelInputCombined), // *** เหลือเพียงช่องเดียว ***
+            new ActionRowBuilder().addComponents(channelInputCombined), 
         );
 
         await interaction.showModal(modal);
