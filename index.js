@@ -39,7 +39,7 @@ let CONFIG = {
     CHANNEL_IDS: (process.env.CHANNEL_IDS || '').split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)),
     BATCH_DELAY: parseInt(process.env.BATCH_DELAY || '500'),
     
-    // ** [เพิ่มใหม่] สำหรับบอทต้อนรับ/อำลา **
+    // ** สำหรับบอทต้อนรับ/อำลา ** (ยังคงอยู่)
     WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '0', 
 };
 
@@ -74,7 +74,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers, // ** [สำคัญ] ต้องมีเพื่อรับ Event เข้า/ออก **
+        GatewayIntentBits.GuildMembers, // ** [สำคัญ] ต้องมีเพื่อรับ Event เข้า/ออก ** (ยังคงอยู่)
     ],
 });
 
@@ -178,7 +178,6 @@ async function processMessagesBatch(messages, channelIndex) {
     const batchMap = new Map();
     const userCache = new Map();
 
-    // ... (ฟังก์ชัน processMessagesBatch ไม่มีการเปลี่ยนแปลง)
     for (const message of messages) {
         if (message.author.bot) continue;
         if (!message.content.includes("<@")) continue;
@@ -244,7 +243,7 @@ async function processOldMessages(channelId, channelIndex) {
 }
 
 // =========================================================
-// 🔔 [เพิ่มใหม่] WELCOME / FAREWELL HANDLERS
+// 🔔 WELCOME / FAREWELL HANDLERS (ยังคงอยู่)
 // =========================================================
 
 client.on('guildMemberAdd', member => {
@@ -333,8 +332,6 @@ client.once(Events.ClientReady, async () => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    // โค้ดส่วนนี้ไม่ได้เปลี่ยนแปลง (นับข้อความและการตั้งค่าผ่าน Modal)
-    // ...
     // --- 1. การกดปุ่มนับ (COUNT_BUTTON_ID) ---
     if (interaction.isButton() && interaction.customId === COUNT_BUTTON_ID) {
         try {
@@ -378,10 +375,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setCustomId(CONFIG_MODAL_ID)
             .setTitle('⚙️ ตั้งค่า Google Sheet & Channel');
 
-        // ดึงค่าปัจจุบันจาก CONFIG เพื่อใช้ใน Modal
-        const id1 = CONFIG.CHANNEL_IDS[0] || '';
-        const id2 = CONFIG.CHANNEL_IDS[1] || '';
-        const id3 = CONFIG.CHANNEL_IDS[2] || '';
+        // *** การแก้ไข: รวม 3 ช่องเป็น 1 ช่อง ***
+        const allChannelIds = CONFIG.CHANNEL_IDS.join(', ') || ''; 
 
         const spreadsheetIdInput = new TextInputBuilder()
             .setCustomId('spreadsheet_id_input')
@@ -397,33 +392,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setRequired(true)
             .setValue(CONFIG.SHEET_NAME);
             
-        const channel1Input = new TextInputBuilder()
-            .setCustomId('channel_id_1_input')
-            .setLabel("Channel ID 1 (คอลัมน์ C)")
-            .setStyle(TextInputStyle.Short) 
+        const channelInputCombined = new TextInputBuilder()
+            .setCustomId('channel_ids_combined_input') // *** ใช้ Custom ID ใหม่ ***
+            .setLabel("Channel IDs (ป้อนหลาย ID คั่นด้วยคอมมา , )")
+            .setStyle(TextInputStyle.Paragraph) // *** ใช้ Paragraph Style เพื่อให้ป้อนได้หลาย ID ***
             .setRequired(true)
-            .setValue(id1);
-
-        const channel2Input = new TextInputBuilder()
-            .setCustomId('channel_id_2_input')
-            .setLabel("Channel ID 2 (คอลัมน์ D) *ทางเลือก*")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false) 
-            .setValue(id2);
-
-        const channel3Input = new TextInputBuilder()
-            .setCustomId('channel_id_3_input')
-            .setLabel("Channel ID 3 (คอลัมน์ E) *ทางเลือก*")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false) 
-            .setValue(id3);
+            .setValue(allChannelIds); // ใช้ค่าที่รวมแล้ว
 
         modal.addComponents(
             new ActionRowBuilder().addComponents(spreadsheetIdInput),
             new ActionRowBuilder().addComponents(sheetNameInput),
-            new ActionRowBuilder().addComponents(channel1Input), 
-            new ActionRowBuilder().addComponents(channel2Input),  
-            new ActionRowBuilder().addComponents(channel3Input)
+            new ActionRowBuilder().addComponents(channelInputCombined), // *** เหลือเพียงช่องเดียว ***
         );
 
         await interaction.showModal(modal);
@@ -438,18 +417,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input').trim();
             const newSheetName = interaction.fields.getTextInputValue('sheet_name_input').trim();
             
-            const id1 = interaction.fields.getTextInputValue('channel_id_1_input').trim();
-            const id2 = interaction.fields.getTextInputValue('channel_id_2_input').trim();
-            const id3 = interaction.fields.getTextInputValue('channel_id_3_input').trim();
+            // *** การแก้ไข: รับค่าจากช่องรวมเพียงช่องเดียว ***
+            const combinedChannelIdsInput = interaction.fields.getTextInputValue('channel_ids_combined_input').trim();
 
-            let newChannelIds = [id1, id2, id3]
-                .filter(id => id.length > 10 && !isNaN(id)) 
-                .slice(0, MAX_CHANNELS);
+            let newChannelIds = combinedChannelIdsInput.split(',') // แยกด้วยคอมมา
+                .map(id => id.trim()) // ลบช่องว่างหน้า/หลัง
+                .filter(id => id.length > 10 && !isNaN(id)) // กรองเฉพาะ ID ที่ถูกต้อง
+                .slice(0, MAX_CHANNELS); // จำกัดจำนวน Channel IDs สูงสุด
 
             if (newChannelIds.length === 0) {
                  return await interaction.editReply({ 
-                     content: "❌ **ตั้งค่าล้มเหลว:** ไม่พบ Channel ID ที่ถูกต้อง (ต้องมีอย่างน้อย 1 ช่อง) โปรดลองอีกครั้ง",
-                     ephemeral: true 
+                    content: "❌ **ตั้งค่าล้มเหลว:** ไม่พบ Channel ID ที่ถูกต้อง (ต้องมีอย่างน้อย 1 ช่อง) โปรดลองอีกครั้ง",
+                    ephemeral: true 
                    });
             }
 
