@@ -1,3 +1,4 @@
+require("dotenv").config();
 const {
     Client,
     GatewayIntentBits,
@@ -8,44 +9,66 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder,
+    ChannelType,
 } = require("discord.js");
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
-const http = require("http");
+const fs = require("fs");
+const http = require("http"); // แก้ไขการเรียกใช้ HTTP
 
 // =========================================================
-// CONFIG (ใช้ ENV ทั้งหมด)
+// 🌐 CONFIG, CONSTANTS & INITIALIZATION
 // =========================================================
-const PORT = process.env.PORT || 3000;
 
+// 1. โหลด Service Account Credentials
 const credentials = {
+    // ดึงอีเมลจาก Render Env Var ที่ชื่อ CLIENT_EMAIL
     client_email: process.env.CLIENT_EMAIL,
-    private_key: process.env.PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    // ดึง Private Key จาก Render Env Var ที่ชื่อ PRIVATE_KEY
+    // ต้องแปลง Private Key ที่ถูกจัดเก็บใน Env Var ให้กลับมามี Newline (\n) เพื่อให้ JWT ใช้งานได้
+    private_key: process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n') : null, 
 };
-
-let CONFIG = {
-    COMMAND_CHANNEL_ID: process.env.COMMAND_CHANNEL_ID || "0",
-    SPREADSHEET_ID: process.env.SPREADSHEET_ID || "",
-    SHEET_NAME: process.env.SHEET_NAME || "Sheet1",
-    CHANNEL_IDS: [...new Set( // ลบช่องซ้ำอัตโนมัติ
-        (process.env.CHANNEL_IDS || "")
-            .split(",")
-            .map((id) => id.trim())
-            .filter((id) => id.length > 10 && !isNaN(id))
-    )],
-    BATCH_DELAY: parseInt(process.env.BATCH_DELAY || "500"),
-    WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || "0",
-};
-
-// =========================================================
-// GOOGLE SHEETS SETUP
-// =========================================================
+// เพิ่มการตรวจสอบ (Optional แต่มีประโยชน์)
 if (!credentials.client_email || !credentials.private_key) {
-    console.error("❌ Missing Google credentials (CLIENT_EMAIL/PRIVATE_KEY).");
-    process.exit(1);
+    console.warn("⚠️ Google Sheets credentials (CLIENT_EMAIL/PRIVATE_KEY) not fully loaded from environment variables.");
 }
 
+// 2. โหลด CONFIG จากไฟล์ (เพื่อให้ค่าคงทน)
+let CONFIG;
+try {
+    CONFIG = JSON.parse(fs.readFileSync("./config.json", "utf-8"));
+    console.log("✅ Loaded configuration from config.json");
+} catch (error) {
+    console.error("❌ Error loading config.json. Attempting to use default Env Vars.", error);
+    // หากโหลด config.json ล้มเหลว ให้ตั้งค่าพื้นฐานที่จำเป็นจาก Env Var
+    CONFIG = {
+        COMMAND_CHANNEL_ID: process.env.COMMAND_CHANNEL_ID || '0', // ต้องตั้งค่าใน Render
+        SPREADSHEET_ID: process.env.SPREADSHEET_ID || '',
+        SHEET_NAME: 'Sheet1', // ค่าเริ่มต้น
+        CHANNEL_IDS: [],
+    };
+}
+
+function saveConfig() {
+    try {
+        // กรอง Channel ID ว่างเปล่าออกก่อนบันทึก
+        CONFIG.CHANNEL_IDS = CONFIG.CHANNEL_IDS.filter(id => id && id.length > 10 && !isNaN(id)); 
+        fs.writeFileSync("./config.json", JSON.stringify(CONFIG, null, 4), "utf-8");
+        console.log("💾 Configuration saved to config.json");
+    } catch (error) {
+        console.error("❌ Error saving configuration:", error);
+    }
+}
+
+// Discord Custom IDs
+const COUNT_BUTTON_ID = "start_historical_count";
+const CONFIG_BUTTON_ID = "open_config_modal";
+const CONFIG_MODAL_ID = "config_form_submit";
+
+const MAX_CHANNELS = 3;
+const STARTING_ROW = 4; // แถวเริ่มต้นบันทึกข้อมูล (นับรวม Header แล้ว)
+
+// Google Sheets setup
 const auth = new JWT({
     email: credentials.client_email,
     key: credentials.private_key,
@@ -53,9 +76,7 @@ const auth = new JWT({
 });
 const gsapi = google.sheets({ version: "v4", auth });
 
-// =========================================================
-// DISCORD CLIENT
-// =========================================================
+// Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -66,115 +87,150 @@ const client = new Client({
 });
 
 // =========================================================
-// GOOGLE SHEET HELPERS
+// ⚙️ GOOGLE SHEET FUNCTIONS (OPTIMIZED)
 // =========================================================
-async function batchUpdateWithRetry(requestBody, attempt = 1) {
+
+async function clearCountsOnly() {
+    // คำนวณขอบเขตคอลัมน์ C ไปจนถึงคอลัมน์ที่รองรับจำนวน Channel IDs ทั้งหมด
+    const range = `${CONFIG.SHEET_NAME}!C${STARTING_ROW}:${String.fromCharCode(65 + 2 + CONFIG.CHANNEL_IDS.length - 1)}`; 
     try {
-        await gsapi.spreadsheets.values.batchUpdate({
+        await gsapi.spreadsheets.values.clear({
             spreadsheetId: CONFIG.SPREADSHEET_ID,
-            requestBody,
+            range,
         });
+        console.log(
+            "✅ Cleared previous mention counts (C:...) but kept usernames.",
+        );
     } catch (error) {
-        if (error.code === 429 && attempt <= 3) {
-            console.warn(`⚠️ Rate limited (attempt ${attempt}), retrying...`);
-            await new Promise((r) => setTimeout(r, 1000 * attempt));
-            return batchUpdateWithRetry(requestBody, attempt + 1);
-        }
+        console.error("❌ Error clearing counts:", error);
         throw error;
     }
 }
 
-async function clearCountsOnly() {
-    const lastCol = String.fromCharCode(65 + 2 + CONFIG.CHANNEL_IDS.length - 1);
-    const range = `${CONFIG.SHEET_NAME}!C4:${lastCol}`;
-    await gsapi.spreadsheets.values.clear({
+async function batchUpdateMentions(batchMap, channelIndex) {
+    const channelCount = CONFIG.CHANNEL_IDS.length;
+    const dataRange = `${CONFIG.SHEET_NAME}!A${STARTING_ROW}:${String.fromCharCode(65 + 1 + channelCount)}`;
+    
+    // 1. อ่านข้อมูลทั้งหมดมาในครั้งเดียว (Batch Read)
+    const response = await gsapi.spreadsheets.values.get({
         spreadsheetId: CONFIG.SPREADSHEET_ID,
-        range,
+        range: dataRange,
     });
-    console.log(`✅ Cleared counts: ${range}`);
+
+    // rows คือข้อมูลตั้งแต่ A4 ลงมา
+    let rows = (response.data.values || []).filter(r => r.length > 0 && (r[0] || r[1])); 
+    
+    const updates = [];
+    const colIndex = 2 + channelIndex; // C=2, D=3, E=4...
+    const colLetter = String.fromCharCode(65 + colIndex);
+
+    for (const [key, count] of batchMap.entries()) {
+        const [displayName, username] = key.split("|");
+        
+        let rowIndex = rows.findIndex(
+            (r) => r[0] === displayName && r[1] === username,
+        );
+        
+        if (rowIndex >= 0) {
+            // ผู้ใช้เดิม: คำนวณค่าใหม่ในหน่วยความจำ
+            const sheetRowIndex = STARTING_ROW + rowIndex; 
+            const currentRange = `${CONFIG.SHEET_NAME}!${colLetter}${sheetRowIndex}`;
+            
+            // ดึงค่าปัจจุบันจาก Array ที่ดึงมาทั้งหมด
+            const currentValue = parseInt(rows[rowIndex][colIndex] || "0");
+            const newCount = currentValue + count;
+            
+            updates.push({
+                range: currentRange,
+                values: [[newCount]],
+            });
+            
+            // อัปเดตค่าใน rows array ด้วย (สำคัญ: เพื่อให้การค้นหาใน batchMap รอบถัดไปใช้ค่าใหม่ได้ทันที)
+            rows[rowIndex][colIndex] = String(newCount); 
+            
+        } else {
+            // ผู้ใช้ใหม่: สร้างแถวใหม่
+            const appendRow = STARTING_ROW + rows.length;
+            // สร้างแถวที่มี [DisplayName, Username, 0, 0, ...]
+            const newRow = [displayName, username, ...Array(channelCount).fill(0).map(String)]; 
+            newRow[colIndex] = count;
+            
+            updates.push({
+                range: `${CONFIG.SHEET_NAME}!A${appendRow}:${String.fromCharCode(65 + 1 + channelCount)}${appendRow}`,
+                values: [newRow],
+            });
+            // เพิ่มแถวใหม่เข้าไปใน rows เพื่อใช้ในการตรวจสอบรอบถัดไป
+            rows.push(newRow); 
+        }
+    }
+    
+    // 2. ส่งข้อมูลอัปเดตกลับไปในครั้งเดียว (Batch Write)
+    if (updates.length > 0) {
+        await gsapi.spreadsheets.values.batchUpdate({
+            spreadsheetId: CONFIG.SPREADSHEET_ID,
+            requestBody: {
+                valueInputOption: "RAW",
+                data: updates.map(u => ({ range: u.range, values: u.values })),
+            }
+        });
+    }
+
+    // หน่วงเวลาเพื่อหลีกเลี่ยงข้อจำกัดของ Google Sheets API
+    await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY || 500)); 
 }
 
+
 // =========================================================
-// COUNTING FUNCTIONS
+// 💬 DISCORD MESSAGE PROCESSING
 // =========================================================
+
 async function processMessagesBatch(messages, channelIndex) {
     const batchMap = new Map();
     const userCache = new Map();
 
-    for (const msg of messages) {
-        if (msg.author.bot) continue;
-        if (!msg.content.includes("<@")) continue;
+    for (const message of messages) {
+        if (message.author.bot) continue;
+        if (!message.content.includes("<@")) continue;
 
         const mentionRegex = /<@!?(\d+)>/g;
         let match;
-        while ((match = mentionRegex.exec(msg.content)) !== null) {
-            const id = match[1];
-            if (userCache.has(id)) continue; // ป้องกันนับซ้ำในข้อความเดียว
 
-            try {
-                const user = await client.users.fetch(id);
-                batchMap.set(id, (batchMap.get(id) || 0) + 1);
-                userCache.set(id, true);
-            } catch {}
+        while ((match = mentionRegex.exec(message.content)) !== null) {
+            const id = match[1];
+            let displayName, username;
+
+            if (userCache.has(id)) {
+                ({ displayName, username } = userCache.get(id));
+            } else {
+                try {
+                    // พยายาม fetch เป็น Member ก่อน เพื่อให้ได้ displayName (Nickname)
+                    const member = await message.guild.members.fetch(id);
+                    displayName = member.displayName;
+                    username = member.user.username;
+                } catch {
+                    // หากไม่สามารถ fetch เป็น Member ได้ (อาจจะออกจากเซิร์ฟเวอร์ไปแล้ว) ให้ fetch เป็น User
+                    const user = await client.users.fetch(id);
+                    displayName = user.username;
+                    username = user.username;
+                }
+                userCache.set(id, { displayName, username });
+            }
+
+            const key = `${displayName}|${username}`;
+            batchMap.set(key, (batchMap.get(key) || 0) + 1);
         }
     }
 
     if (batchMap.size > 0) {
-        await updateSheetCounts(batchMap, channelIndex);
+        await batchUpdateMentions(batchMap, channelIndex);
     }
 }
 
-async function updateSheetCounts(batchMap, channelIndex) {
-    const sheet = CONFIG.SHEET_NAME;
-    const range = `${sheet}!A4:Z`;
-    const res = await gsapi.spreadsheets.values.get({
-        spreadsheetId: CONFIG.SPREADSHEET_ID,
-        range,
-    });
-
-    const rows = res.data.values || [];
-    const userIdCol = 1;
-    const colIndex = 2 + channelIndex;
-    const colLetter = String.fromCharCode(65 + colIndex);
-    const updates = [];
-
-    for (const [userId, count] of batchMap.entries()) {
-        let rowIndex = rows.findIndex((r) => r[userIdCol] === userId);
-        if (rowIndex >= 0) {
-            const sheetRow = 4 + rowIndex;
-            const currentValue = parseInt(rows[rowIndex][colIndex] || "0");
-            const newValue = currentValue + count;
-            updates.push({
-                range: `${sheet}!${colLetter}${sheetRow}`,
-                values: [[newValue]],
-            });
-            rows[rowIndex][colIndex] = String(newValue);
-        } else {
-            const newRow = ["Unknown", userId, ...Array(CONFIG.CHANNEL_IDS.length).fill("0")];
-            newRow[colIndex] = count.toString();
-            const appendRow = 4 + rows.length;
-            updates.push({
-                range: `${sheet}!A${appendRow}:${colLetter}${appendRow}`,
-                values: [newRow],
-            });
-            rows.push(newRow);
-        }
-    }
-
-    if (updates.length > 0) {
-        await batchUpdateWithRetry({
-            valueInputOption: "RAW",
-            data: updates,
-        });
-    }
-
-    await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY));
-}
-
-async function processOldMessages(channelId, index) {
+async function processOldMessages(channelId, channelIndex) {
     try {
         const channel = await client.channels.fetch(channelId);
-        if (!channel) return console.log(`⚠️ Channel ${channelId} not found.`);
+        if (!channel) return console.log(`❌ Channel ${channelId} not found. Skipping.`);
+
         let lastId = null;
 
         while (true) {
@@ -184,84 +240,219 @@ async function processOldMessages(channelId, index) {
             const messages = await channel.messages.fetch(options);
             if (messages.size === 0) break;
 
-            await processMessagesBatch([...messages.values()], index);
+            await processMessagesBatch([...messages.values()], channelIndex);
             lastId = messages.last().id;
+            // หน่วงเวลาเพื่อหลีกเลี่ยง rate limit ของ Discord/Google Sheets
+            await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY || 500)); 
         }
 
-        console.log(`✅ Done counting in #${channel.name}`);
-    } catch (err) {
-        console.error(`❌ Channel ${channelId} error:`, err.message);
+        console.log(
+            `✅ Finished processing old messages for channel ${channel.name} (${channelId})`,
+        );
+    } catch (error) {
+        console.error(`❌ Error processing channel ${channelId}:`, error.message);
     }
 }
 
 // =========================================================
-// WELCOME / FAREWELL
+// 🎨 DISCORD UI & EVENT HANDLERS
 // =========================================================
-client.on("guildMemberAdd", (member) => {
-    const channel = member.guild.channels.cache.get(CONFIG.WELCOME_CHANNEL_ID);
-    if (!channel?.isTextBased()) return;
 
-    setTimeout(() => {
-        const embed = new EmbedBuilder()
-            .setColor("#00ff99")
-            .setTitle(`🎉 ยินดีต้อนรับ ${member.displayName}!`)
-            .setDescription(`# สวัสดีครับ ยินดีต้อนรับเข้าสู่ ${member.guild.name}`)
-            .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-            .setTimestamp();
+function getStartCountMessage() {
+    const validChannelIds = CONFIG.CHANNEL_IDS.filter(id => id.length > 10 && !isNaN(id));
 
-        channel.send({ embeds: [embed] }).catch(() => {});
-    }, 2000);
-});
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(COUNT_BUTTON_ID)
+            .setLabel("⭐ เริ่มนับข้อความเก่า")
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId(CONFIG_BUTTON_ID)
+            .setLabel("⚙️ ตั้งค่า Google Sheet/Channel")
+            .setStyle(ButtonStyle.Secondary),
+    );
 
-client.on("guildMemberRemove", (member) => {
-    const channel = member.guild.channels.cache.get(CONFIG.WELCOME_CHANNEL_ID);
-    if (!channel?.isTextBased()) return;
+    const channelList = validChannelIds.map(id => `- <#${id}>`).join('\n') || '- ยังไม่มีช่องสำหรับการนับ -';
+    
+    return {
+        content: `⚠️ สถานะปัจจุบัน:\n> Sheet ID: **${CONFIG.SPREADSHEET_ID}**\n> Sheet Name: **${CONFIG.SHEET_NAME}**\n> Channel ที่นับ (${validChannelIds.length}/${MAX_CHANNELS} แห่ง):\n${channelList}\n\nกดปุ่มด้านล่างเพื่อเริ่มนับข้อความเก่า หรือตั้งค่าใหม่:`,
+        components: [row],
+    };
+}
 
-    const embed = new EmbedBuilder()
-        .setColor("#ff5555")
-        .setTitle(`😢 ${member.user.tag} ออกจากเซิร์ฟเวอร์แล้ว`)
-        .setDescription(`# หวังว่าจะได้เจอกันอีกนะ ${member.displayName || member.user.username}`)
-        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
-        .setTimestamp();
-
-    channel.send({ embeds: [embed] }).catch(() => {});
-});
-
-// =========================================================
-// BOT READY + COMMAND UI
-// =========================================================
 client.once(Events.ClientReady, async () => {
-    console.log(`✅ Logged in as ${client.user.tag}`);
-    const cmdChannel = await client.channels.fetch(CONFIG.COMMAND_CHANNEL_ID).catch(() => {});
-    if (!cmdChannel?.isTextBased()) return;
+    console.log(`Logged in as ${client.user.tag}`);
 
-    await cmdChannel.send({
-        content: `✅ Bot พร้อมทำงานแล้ว\n\n> Sheet: **${CONFIG.SPREADSHEET_ID}**\n> Channels: ${CONFIG.CHANNEL_IDS.map(id => `<#${id}>`).join(", ")}`,
-        components: [
-            new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("count").setLabel("⭐ เริ่มนับข้อความเก่า").setStyle(ButtonStyle.Primary)
-            ),
-        ],
-    });
+    try {
+        const commandChannel = await client.channels.fetch(
+            CONFIG.COMMAND_CHANNEL_ID,
+        );
+        if (commandChannel && commandChannel.isTextBased()) {
+            await commandChannel.send(getStartCountMessage());
+            console.log(
+                `✅ Sent control buttons to channel ${CONFIG.COMMAND_CHANNEL_ID}`,
+            );
+        }
+    } catch (error) {
+        console.error("❌ Error sending control buttons:", error);
+    }
 });
 
-client.on(Events.InteractionCreate, async (i) => {
-    if (i.isButton() && i.customId === "count") {
-        await i.deferReply();
-        await clearCountsOnly();
-        for (let x = 0; x < CONFIG.CHANNEL_IDS.length; x++) {
-            await processOldMessages(CONFIG.CHANNEL_IDS[x], x);
+client.on(Events.InteractionCreate, async (interaction) => {
+    // --- 1. การกดปุ่มนับ (COUNT_BUTTON_ID) ---
+    if (interaction.isButton() && interaction.customId === COUNT_BUTTON_ID) {
+        try {
+            await interaction.deferReply(); 
+
+            if (!CONFIG.SPREADSHEET_ID || !CONFIG.SHEET_NAME || CONFIG.CHANNEL_IDS.length === 0) {
+                return await interaction.editReply({ 
+                    content: "❌ **การตั้งค่าไม่สมบูรณ์!** โปรดตั้งค่า Sheet ID, Sheet Name และ Channel IDs ก่อนเริ่มนับ",
+                    ephemeral: true 
+                });
+            }
+
+            await interaction.editReply("⏳ กำลังล้างข้อมูลการนับเก่าใน Sheet และเริ่มนับข้อความเก่า... โปรดรอสักครู่");
+
+            await clearCountsOnly();
+
+            for (let i = 0; i < CONFIG.CHANNEL_IDS.length; i++) {
+                await processOldMessages(CONFIG.CHANNEL_IDS[i], i);
+            }
+            
+            const replyMsg = await interaction.editReply({
+                content: "🎉 **การนับข้อความเก่าเสร็จสมบูรณ์!** ข้อความนี้จะถูกลบใน 5 วินาที",
+                components: [],
+            });
+            await new Promise((r) => setTimeout(r, 5000));
+            await replyMsg.delete().catch(() => {}); 
+            
+        } catch (error) {
+            console.error("[Historical Count Error]:", error);
+            await interaction.editReply({
+                content: "❌ เกิดข้อผิดพลาดระหว่างการนับสถิติ โปรดตรวจสอบ Log ของบอท",
+                ephemeral: true 
+            });
         }
-        await i.editReply("✅ การนับเสร็จสมบูรณ์!");
+        return;
+    }
+
+    // --- 2. การกดปุ่มตั้งค่า (CONFIG_BUTTON_ID) ---
+    if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
+        const modal = new ModalBuilder()
+            .setCustomId(CONFIG_MODAL_ID)
+            .setTitle('⚙️ ตั้งค่า Google Sheet & Channel');
+
+        const spreadsheetIdInput = new TextInputBuilder()
+            .setCustomId('spreadsheet_id_input')
+            .setLabel("Google Sheet ID")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setValue(CONFIG.SPREADSHEET_ID);
+
+        const sheetNameInput = new TextInputBuilder()
+            .setCustomId('sheet_name_input')
+            .setLabel("Sheet Name")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setValue(CONFIG.SHEET_NAME);
+            
+        const id1 = CONFIG.CHANNEL_IDS[0] || '';
+        const id2 = CONFIG.CHANNEL_IDS[1] || '';
+        const id3 = CONFIG.CHANNEL_IDS[2] || '';
+
+        const channel1Input = new TextInputBuilder()
+            .setCustomId('channel_id_1_input')
+            .setLabel("Channel ID 1 (คอลัมน์ C)")
+            .setStyle(TextInputStyle.Short) 
+            .setRequired(true)
+            .setValue(id1);
+
+        const channel2Input = new TextInputBuilder()
+            .setCustomId('channel_id_2_input')
+            .setLabel("Channel ID 2 (คอลัมน์ D) *ทางเลือก*")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false) 
+            .setValue(id2);
+
+        const channel3Input = new TextInputBuilder()
+            .setCustomId('channel_id_3_input')
+            .setLabel("Channel ID 3 (คอลัมน์ E) *ทางเลือก*")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false) 
+            .setValue(id3);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(spreadsheetIdInput),
+            new ActionRowBuilder().addComponents(sheetNameInput),
+            new ActionRowBuilder().addComponents(channel1Input), 
+            new ActionRowBuilder().addComponents(channel2Input),  
+            new ActionRowBuilder().addComponents(channel3Input)
+        );
+
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
+    if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
+        // ลบ { ephemeral: true } ออกเพื่อให้บอทสามารถลบข้อความตอบกลับได้
+        await interaction.deferReply(); 
+        
+        try {
+            const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input').trim();
+            const newSheetName = interaction.fields.getTextInputValue('sheet_name_input').trim();
+            
+            const id1 = interaction.fields.getTextInputValue('channel_id_1_input').trim();
+            const id2 = interaction.fields.getTextInputValue('channel_id_2_input').trim();
+            const id3 = interaction.fields.getTextInputValue('channel_id_3_input').trim();
+
+            let newChannelIds = [id1, id2, id3]
+                .filter(id => id.length > 10 && !isNaN(id)) 
+                .slice(0, MAX_CHANNELS);
+
+            if (newChannelIds.length === 0) {
+                 return await interaction.editReply({ 
+                    content: "❌ **ตั้งค่าล้มเหลว:** ไม่พบ Channel ID ที่ถูกต้อง (ต้องมีอย่างน้อย 1 ช่อง) โปรดลองอีกครั้ง",
+                    ephemeral: true 
+                });
+            }
+
+            CONFIG.SPREADSHEET_ID = newSpreadsheetId;
+            CONFIG.SHEET_NAME = newSheetName;
+            CONFIG.CHANNEL_IDS = newChannelIds;
+            
+            saveConfig();
+
+            const commandChannel = await client.channels.fetch(CONFIG.COMMAND_CHANNEL_ID);
+            if (commandChannel && interaction.message) {
+                const message = await commandChannel.messages.fetch(interaction.message.id);
+                await message.edit(getStartCountMessage());
+            }
+
+            const replyMsg = await interaction.editReply({
+                content: `✅ **ตั้งค่า Bot ใหม่เรียบร้อยแล้ว!** ข้อความนี้จะถูกลบใน 5 วินาที\n> Sheet ID: ${newSpreadsheetId}\n> Sheet Name: ${newSheetName}\n> Channel IDs ที่บันทึก: ${newChannelIds.join(', ')}`,
+            });
+            await new Promise((r) => setTimeout(r, 5000));
+            await replyMsg.delete().catch(() => {});
+
+        } catch (error) {
+            console.error("[Modal Submit Error]:", error);
+            await interaction.editReply({
+                content: "❌ เกิดข้อผิดพลาดในการบันทึกค่า โปรดตรวจสอบ Log ของบอท",
+                ephemeral: true
+            });
+        }
+        return;
     }
 });
 
 // =========================================================
-// KEEP-ALIVE + LOGIN
+// 🌐 KEEP-ALIVE SERVER & LOGIN
 // =========================================================
+
 http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end("✅ Bot is alive!");
-}).listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("✅ Discord Bot is alive and running!");
+}).listen(3000, () => console.log("🌐 Web server running on port 3000."));
 
 client.login(process.env.DISCORD_TOKEN || process.env.TOKEN);
