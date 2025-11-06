@@ -357,7 +357,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
         const modal = new ModalBuilder()
             .setCustomId(CONFIG_MODAL_ID)
-            .setTitle('⚙️ แก้ไข Config (บันทึกในไฟล์)'); // แก้ให้สั้นพอดี 45 อักขระ
+            .setTitle('⚙️ แก้ไข Config (บันทึกในไฟล์)');
 
         const spreadsheetIdInput = new TextInputBuilder()
             .setCustomId('spreadsheet_id_input')
@@ -377,7 +377,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const channelListInput = new TextInputBuilder()
             .setCustomId('channel_list_input')
-            .setLabel("Channel IDs (รูปแบบ: id1,id2,id3)") // แก้ให้สั้นพอดี 45 อักขระ
+            .setLabel("Channel IDs (รูปแบบ: id1,id2,id3)")
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(false)
             .setValue(channelIds);
@@ -387,7 +387,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setLabel("Batch Delay (ms)")
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
-            .setValue(String(CONFIG.BATCH_DELAY || 150)); // ใช้ 150ms เป็นค่าเริ่มต้น
+            .setValue(String(CONFIG.BATCH_DELAY || 150));
 
         // ❌ Note: เราละ UPDATE_DELAY ไว้เพื่อไม่ให้เกิน 5 Input
 
@@ -410,7 +410,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input');
             const newSheetName = interaction.fields.getTextInputValue('sheet_name_input');
             const newChannelIdsRaw = interaction.fields.getTextInputValue('channel_list_input');
-            // **นำการดึงค่า Batch Delay กลับมา (แก้ไขข้อ 1)**
             const newBatchDelayRaw = interaction.fields.getTextInputValue('batch_delay_input');
 
             CONFIG.SPREADSHEET_ID = newSpreadsheetId;
@@ -418,7 +417,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             CONFIG.CHANNEL_IDS = newChannelIdsRaw
                                  ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, MAX_CHANNELS)
                                  : [];
-            // **นำการอัปเดต Batch Delay กลับมา (แก้ไขข้อ 1)**
             CONFIG.BATCH_DELAY = parseInt(newBatchDelayRaw) || 150;
 
             saveConfig();
@@ -439,7 +437,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
         }
     }
-); // <-- แก้ไข Syntax Error: เพิ่มวงเล็บปิดของ client.on()
+}); // <--- วงเล็บปิดถูกต้องแล้ว
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
