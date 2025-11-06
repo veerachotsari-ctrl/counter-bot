@@ -352,7 +352,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
         const modal = new ModalBuilder()
             .setCustomId(CONFIG_MODAL_ID)
-            .setTitle('⚙️ แก้ไข Configuration (จะบันทึกใน config.json)');
+            .setTitle('⚙️ แก้ไข Config (บันทึกในไฟล์)');
 
         const spreadsheetIdInput = new TextInputBuilder()
             .setCustomId('spreadsheet_id_input')
