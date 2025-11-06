@@ -13,8 +13,8 @@ const {
 } = require("discord.js");
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
-const fs = require("fs");
-const http = require("http"); // แก้ไขการเรียกใช้ HTTP
+// const fs = require("fs"); // ลบการเรียกใช้ fs ออกไป
+const http = require("http");
 
 // =========================================================
 // 🌐 CONFIG, CONSTANTS & INITIALIZATION
@@ -22,50 +22,41 @@ const http = require("http"); // แก้ไขการเรียกใช�
 
 // 1. โหลด Service Account Credentials
 const credentials = {
-    // ดึงอีเมลจาก Render Env Var ที่ชื่อ CLIENT_EMAIL
+    // ดึงอีเมลจาก Env Var ที่ชื่อ CLIENT_EMAIL
     client_email: process.env.CLIENT_EMAIL,
-    // ดึง Private Key จาก Render Env Var ที่ชื่อ PRIVATE_KEY
-    // ต้องแปลง Private Key ที่ถูกจัดเก็บใน Env Var ให้กลับมามี Newline (\n) เพื่อให้ JWT ใช้งานได้
+    // ดึง Private Key จาก Env Var ที่ชื่อ PRIVATE_KEY
     private_key: process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n') : null, 
 };
-// เพิ่มการตรวจสอบ (Optional แต่มีประโยชน์)
+
 if (!credentials.client_email || !credentials.private_key) {
     console.warn("⚠️ Google Sheets credentials (CLIENT_EMAIL/PRIVATE_KEY) not fully loaded from environment variables.");
 }
 
-// 2. โหลด CONFIG จากไฟล์ (เพื่อให้ค่าคงทน)
-let CONFIG;
-try {
-    CONFIG = JSON.parse(fs.readFileSync("./config.json", "utf-8"));
-    console.log("✅ Loaded configuration from config.json");
-} catch (error) {
-    console.error("❌ Error loading config.json. Attempting to use default Env Vars.", error);
-    // หากโหลด config.json ล้มเหลว ให้ตั้งค่าพื้นฐานที่จำเป็นจาก Env Var
-    CONFIG = {
-        COMMAND_CHANNEL_ID: process.env.COMMAND_CHANNEL_ID || '0', // ต้องตั้งค่าใน Render
-        SPREADSHEET_ID: process.env.SPREADSHEET_ID || '',
-        SHEET_NAME: 'Sheet1', // ค่าเริ่มต้น
-        CHANNEL_IDS: [],
-    };
-}
+// 2. โหลด CONFIG จาก Environment Variables เท่านั้น (แทนที่ส่วนที่เคยอ่านไฟล์)
+const MAX_CHANNELS = 3; // กำหนดค่าคงที่ Max Channel
+let CONFIG = {
+    // **ค่าเริ่มต้น** ที่บอทต้องการ
+    COMMAND_CHANNEL_ID: process.env.COMMAND_CHANNEL_ID || '0', 
+    SPREADSHEET_ID: process.env.SPREADSHEET_ID || '',
+    SHEET_NAME: process.env.SHEET_NAME || 'Sheet1', 
+    
+    // โหลด Channel IDs จาก Env Var (สมมติว่ากำหนดในรูปแบบ 'id1,id2,id3')
+    // และกรองให้เหลือไม่เกิน MAX_CHANNELS
+    CHANNEL_IDS: (process.env.CHANNEL_IDS ? process.env.CHANNEL_IDS.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)) : []).slice(0, MAX_CHANNELS),
+    
+    // ตั้งค่า BATCH_DELAY สำหรับ API Rate Limit
+    BATCH_DELAY: parseInt(process.env.BATCH_DELAY || '500'),
+};
 
-function saveConfig() {
-    try {
-        // กรอง Channel ID ว่างเปล่าออกก่อนบันทึก
-        CONFIG.CHANNEL_IDS = CONFIG.CHANNEL_IDS.filter(id => id && id.length > 10 && !isNaN(id)); 
-        fs.writeFileSync("./config.json", JSON.stringify(CONFIG, null, 4), "utf-8");
-        console.log("💾 Configuration saved to config.json");
-    } catch (error) {
-        console.error("❌ Error saving configuration:", error);
-    }
-}
+console.log("✅ Loaded configuration from Environment Variables.");
+
+// **ลบ** ฟังก์ชัน saveConfig() ออกไป เนื่องจากไม่ใช้ไฟล์ config.json แล้ว
 
 // Discord Custom IDs
 const COUNT_BUTTON_ID = "start_historical_count";
 const CONFIG_BUTTON_ID = "open_config_modal";
 const CONFIG_MODAL_ID = "config_form_submit";
 
-const MAX_CHANNELS = 3;
 const STARTING_ROW = 4; // แถวเริ่มต้นบันทึกข้อมูล (นับรวม Header แล้ว)
 
 // Google Sheets setup
@@ -176,7 +167,7 @@ async function batchUpdateMentions(batchMap, channelIndex) {
     }
 
     // หน่วงเวลาเพื่อหลีกเลี่ยงข้อจำกัดของ Google Sheets API
-    await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY || 500)); 
+    await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY)); 
 }
 
 
@@ -243,7 +234,7 @@ async function processOldMessages(channelId, channelIndex) {
             await processMessagesBatch([...messages.values()], channelIndex);
             lastId = messages.last().id;
             // หน่วงเวลาเพื่อหลีกเลี่ยง rate limit ของ Discord/Google Sheets
-            await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY || 500)); 
+            await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY)); 
         }
 
         console.log(
@@ -259,7 +250,7 @@ async function processOldMessages(channelId, channelIndex) {
 // =========================================================
 
 function getStartCountMessage() {
-    const validChannelIds = CONFIG.CHANNEL_IDS.filter(id => id.length > 10 && !isNaN(id));
+    const validChannelIds = CONFIG.CHANNEL_IDS.filter(id => id && id.length > 10 && !isNaN(id));
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -268,14 +259,14 @@ function getStartCountMessage() {
             .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
             .setCustomId(CONFIG_BUTTON_ID)
-            .setLabel("⚙️ ตั้งค่า Google Sheet/Channel")
+            .setLabel("⚙️ ดูค่าที่ใช้งาน (ตั้งค่าต้องแก้ Env Var)") // แก้ไข Label
             .setStyle(ButtonStyle.Secondary),
     );
 
     const channelList = validChannelIds.map(id => `- <#${id}>`).join('\n') || '- ยังไม่มีช่องสำหรับการนับ -';
     
     return {
-        content: `⚠️ สถานะปัจจุบัน:\n> Sheet ID: **${CONFIG.SPREADSHEET_ID}**\n> Sheet Name: **${CONFIG.SHEET_NAME}**\n> Channel ที่นับ (${validChannelIds.length}/${MAX_CHANNELS} แห่ง):\n${channelList}\n\nกดปุ่มด้านล่างเพื่อเริ่มนับข้อความเก่า หรือตั้งค่าใหม่:`,
+        content: `⚠️ สถานะปัจจุบัน (ดึงจาก Env Vars):\n> Sheet ID: **${CONFIG.SPREADSHEET_ID}**\n> Sheet Name: **${CONFIG.SHEET_NAME}**\n> Channel ที่นับ (${validChannelIds.length}/${MAX_CHANNELS} แห่ง):\n${channelList}\n\nกดปุ่มด้านล่างเพื่อเริ่มนับข้อความเก่า หรือดูค่า Env Vars:`,
         components: [row],
     };
 }
@@ -306,7 +297,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             if (!CONFIG.SPREADSHEET_ID || !CONFIG.SHEET_NAME || CONFIG.CHANNEL_IDS.length === 0) {
                 return await interaction.editReply({ 
-                    content: "❌ **การตั้งค่าไม่สมบูรณ์!** โปรดตั้งค่า Sheet ID, Sheet Name และ Channel IDs ก่อนเริ่มนับ",
+                    content: "❌ **การตั้งค่าไม่สมบูรณ์!** โปรดตั้งค่า Sheet ID, Sheet Name และ Channel IDs ใน Environment Variables ก่อน",
                     ephemeral: true 
                 });
             }
@@ -337,56 +328,39 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     // --- 2. การกดปุ่มตั้งค่า (CONFIG_BUTTON_ID) ---
+    // เปลี่ยนพฤติกรรมเป็นการแสดงค่าปัจจุบันเท่านั้น เนื่องจากไม่สามารถบันทึกได้แล้ว
     if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
         const modal = new ModalBuilder()
             .setCustomId(CONFIG_MODAL_ID)
-            .setTitle('⚙️ ตั้งค่า Google Sheet & Channel');
+            .setTitle('⚙️ ค่า Configuration ปัจจุบัน (Env Vars)');
 
         const spreadsheetIdInput = new TextInputBuilder()
             .setCustomId('spreadsheet_id_input')
-            .setLabel("Google Sheet ID")
+            .setLabel("Google Sheet ID (แก้ใน Env Var)")
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
             .setValue(CONFIG.SPREADSHEET_ID);
 
         const sheetNameInput = new TextInputBuilder()
             .setCustomId('sheet_name_input')
-            .setLabel("Sheet Name")
+            .setLabel("Sheet Name (แก้ใน Env Var)")
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
             .setValue(CONFIG.SHEET_NAME);
             
-        const id1 = CONFIG.CHANNEL_IDS[0] || '';
-        const id2 = CONFIG.CHANNEL_IDS[1] || '';
-        const id3 = CONFIG.CHANNEL_IDS[2] || '';
+        const channelIds = CONFIG.CHANNEL_IDS.join(', ');
 
-        const channel1Input = new TextInputBuilder()
-            .setCustomId('channel_id_1_input')
-            .setLabel("Channel ID 1 (คอลัมน์ C)")
-            .setStyle(TextInputStyle.Short) 
-            .setRequired(true)
-            .setValue(id1);
-
-        const channel2Input = new TextInputBuilder()
-            .setCustomId('channel_id_2_input')
-            .setLabel("Channel ID 2 (คอลัมน์ D) *ทางเลือก*")
-            .setStyle(TextInputStyle.Short)
+        const channelListInput = new TextInputBuilder()
+            .setCustomId('channel_list_input')
+            .setLabel("Channel IDs (แก้ใน Env Var, รูปแบบ: id1,id2,id3)")
+            .setStyle(TextInputStyle.Paragraph) // ใช้ Paragraph เพื่อแสดงหลาย ID
             .setRequired(false) 
-            .setValue(id2);
-
-        const channel3Input = new TextInputBuilder()
-            .setCustomId('channel_id_3_input')
-            .setLabel("Channel ID 3 (คอลัมน์ E) *ทางเลือก*")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false) 
-            .setValue(id3);
+            .setValue(channelIds);
 
         modal.addComponents(
             new ActionRowBuilder().addComponents(spreadsheetIdInput),
             new ActionRowBuilder().addComponents(sheetNameInput),
-            new ActionRowBuilder().addComponents(channel1Input), 
-            new ActionRowBuilder().addComponents(channel2Input),  
-            new ActionRowBuilder().addComponents(channel3Input)
+            new ActionRowBuilder().addComponents(channelListInput) 
         );
 
         await interaction.showModal(modal);
@@ -394,54 +368,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
+    // เปลี่ยนพฤติกรรมเป็นการแสดงข้อความแจ้งเตือนว่าไม่สามารถบันทึกได้
     if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
-        // ลบ { ephemeral: true } ออกเพื่อให้บอทสามารถลบข้อความตอบกลับได้
-        await interaction.deferReply(); 
+        await interaction.deferReply({ ephemeral: true }); 
         
-        try {
-            const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input').trim();
-            const newSheetName = interaction.fields.getTextInputValue('sheet_name_input').trim();
-            
-            const id1 = interaction.fields.getTextInputValue('channel_id_1_input').trim();
-            const id2 = interaction.fields.getTextInputValue('channel_id_2_input').trim();
-            const id3 = interaction.fields.getTextInputValue('channel_id_3_input').trim();
-
-            let newChannelIds = [id1, id2, id3]
-                .filter(id => id.length > 10 && !isNaN(id)) 
-                .slice(0, MAX_CHANNELS);
-
-            if (newChannelIds.length === 0) {
-                 return await interaction.editReply({ 
-                    content: "❌ **ตั้งค่าล้มเหลว:** ไม่พบ Channel ID ที่ถูกต้อง (ต้องมีอย่างน้อย 1 ช่อง) โปรดลองอีกครั้ง",
-                    ephemeral: true 
-                });
-            }
-
-            CONFIG.SPREADSHEET_ID = newSpreadsheetId;
-            CONFIG.SHEET_NAME = newSheetName;
-            CONFIG.CHANNEL_IDS = newChannelIds;
-            
-            saveConfig();
-
-            const commandChannel = await client.channels.fetch(CONFIG.COMMAND_CHANNEL_ID);
-            if (commandChannel && interaction.message) {
-                const message = await commandChannel.messages.fetch(interaction.message.id);
-                await message.edit(getStartCountMessage());
-            }
-
-            const replyMsg = await interaction.editReply({
-                content: `✅ **ตั้งค่า Bot ใหม่เรียบร้อยแล้ว!** ข้อความนี้จะถูกลบใน 5 วินาที\n> Sheet ID: ${newSpreadsheetId}\n> Sheet Name: ${newSheetName}\n> Channel IDs ที่บันทึก: ${newChannelIds.join(', ')}`,
-            });
-            await new Promise((r) => setTimeout(r, 5000));
-            await replyMsg.delete().catch(() => {});
-
-        } catch (error) {
-            console.error("[Modal Submit Error]:", error);
-            await interaction.editReply({
-                content: "❌ เกิดข้อผิดพลาดในการบันทึกค่า โปรดตรวจสอบ Log ของบอท",
-                ephemeral: true
-            });
-        }
+        // เราจะไม่ดึงค่าและบันทึก แต่จะแจ้งผู้ใช้ว่าต้องแก้ไข Env Var แทน
+        await interaction.editReply({
+            content: "⚠️ **ไม่สามารถบันทึกค่าได้!** เนื่องจากบอททำงานในโหมด Environment Variables หากต้องการแก้ไขค่า โปรดทำการแก้ไขและ Deploy ใหม่ในระบบโฮสติ้ง (เช่น Render)",
+            ephemeral: true
+        });
         return;
     }
 });
