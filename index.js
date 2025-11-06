@@ -336,12 +336,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 await processOldMessages(CONFIG.CHANNEL_IDS[i], i);
             }
 
-            const replyMsg = await interaction.editReply({
+            // ใช้ interaction.editReply() และไม่เก็บค่า replyMsg
+            await interaction.editReply({
                 content: "🎉 **การนับข้อความเก่าเสร็จสมบูรณ์!** ข้อความนี้จะถูกลบใน 5 วินาที",
                 components: [],
             });
+            
             await new Promise((r) => setTimeout(r, 5000));
-            await replyMsg.delete().catch(() => {});
+            // แก้ไข: ใช้ deleteReply() ซึ่งถูกต้องกว่าสำหรับ Interaction Reply
+            await interaction.deleteReply().catch(() => {});
 
         } catch (error) {
             console.error("[Historical Count Error]:", error);
@@ -404,7 +407,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
     if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
-        await interaction.deferReply({ ephemeral: true });
+        // ต้อง deferReply ก่อน เพราะเราใช้ editReply()
+        await interaction.deferReply({ ephemeral: true }); 
 
         try {
             const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input');
@@ -421,13 +425,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             saveConfig();
 
-            const replyMsg = await interaction.editReply({
-                content: `✅ **บันทึกการตั้งค่าเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`,
-                ephemeral: true
+            // 1. แก้ไข Reply ให้แสดงผลสำเร็จ (ใช้ข้อความเดิม)
+            await interaction.editReply({
+                content: `✅ **บันทึกการตั้งค่าเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`, 
+                ephemeral: true // เป็นข้อความชั่วคราว
             });
 
+            // 2. รอนาน 5 วินาที
             await new Promise((r) => setTimeout(r, 5000));
-            await replyMsg.delete().catch(() => {});
+            
+            // 3. ลบข้อความตอบกลับด้วยเมธอด deleteReply()
+            await interaction.deleteReply().catch(() => {});
 
         } catch (error) {
             console.error("❌ Error processing modal submit:", error);
@@ -437,7 +445,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
         }
     }
-}); // <--- วงเล็บปิดถูกต้องแล้ว
+}); 
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
