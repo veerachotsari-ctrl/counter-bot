@@ -401,48 +401,38 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
-    // **(นำ Logic การดึงค่าและบันทึกกลับมา)**
     if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
         await interaction.deferReply({ ephemeral: true }); 
         
         try {
-            // ดึงค่าจาก Modal
             const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input');
             const newSheetName = interaction.fields.getTextInputValue('sheet_name_input');
             const newChannelIdsRaw = interaction.fields.getTextInputValue('channel_list_input');
-            const newBatchDelayRaw = interaction.fields.getTextInputValue('batch_delay_input');
             
-            // ประมวลผลและอัปเดต CONFIG
             CONFIG.SPREADSHEET_ID = newSpreadsheetId;
             CONFIG.SHEET_NAME = newSheetName;
-            
-            // ประมวลผล Channel IDs
             CONFIG.CHANNEL_IDS = newChannelIdsRaw 
                                  ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, MAX_CHANNELS)
                                  : [];
             
-            // ประมวลผล Delay
-            CONFIG.BATCH_DELAY = parseInt(newBatchDelayRaw) || 500;
-            
-            // **บันทึกค่าลงไฟล์**
             saveConfig(); 
             
-            // ตอบกลับผู้ใช้
-            await interaction.editReply({
-                content: `✅ **บันทึกการตั้งค่าเรียบร้อย!** บอทจะเริ่มใช้ค่าใหม่ทันที`,
-                ephemeral: true
+            const replyMsg = await interaction.editReply({
+                content: `✅ **บันทึกการตั้งค่าเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`,
+                ephemeral: true // ข้อความนี้เห็นเฉพาะผู้กด
             });
-
+            
+            await new Promise((r) => setTimeout(r, 5000));
+            await replyMsg.delete().catch(() => {});
+            
         } catch (error) {
-            console.error("❌ Error processing modal submit:", error);
+            console.error("❌ Error processing modal submit:", error); 
              await interaction.editReply({
                 content: `❌ **เกิดข้อผิดพลาดในการบันทึกค่า!** โปรดตรวจสอบ Log ของบอท`,
                 ephemeral: true
             });
         }
-        return;
     }
-});
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
