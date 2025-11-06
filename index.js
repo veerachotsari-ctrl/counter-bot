@@ -352,7 +352,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const channelListInput = new TextInputBuilder()
             .setCustomId('channel_list_input')
-            .setLabel("Channel IDs (แก้ใน Env Var, รูปแบบ: id1,id2,id3)")
+            .setLabel("Channel IDs (แก้ไขใน Env Var)")
             .setStyle(TextInputStyle.Paragraph) // ใช้ Paragraph เพื่อแสดงหลาย ID
             .setRequired(false) 
             .setValue(channelIds);
