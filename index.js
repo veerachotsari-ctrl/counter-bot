@@ -300,8 +300,11 @@ client.once(Events.ClientReady, async () => {
             );
 
             if (existingControlMessage) {
+                // หากพบข้อความเก่า ให้ตรวจสอบว่าสถานะตรงกันหรือไม่ แล้วแก้ไข (เพื่อให้มั่นใจว่าข้อมูลล่าสุด)
+                const updatedMessage = getStartCountMessage();
+                await existingControlMessage.edit(updatedMessage);
                 console.log(
-                    `ℹ️ Found existing control buttons in channel ${CONFIG.COMMAND_CHANNEL_ID}. Skipping send.`,
+                    `ℹ️ Found and updated existing control buttons in channel ${CONFIG.COMMAND_CHANNEL_ID}.`,
                 );
             } else {
                 // 3. ถ้าไม่มีข้อความที่มีปุ่มอยู่แล้ว ให้ส่งข้อความใหม่
@@ -401,7 +404,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
             new ActionRowBuilder().addComponents(batchDelayInput)
         );
 
-        await interaction.showModal(modal);
+        // ✅ ป้องกันบอท Crash จาก Error 10062
+        try {
+            await interaction.showModal(modal);
+        } catch (error) {
+            console.error("❌ Error 10062: Failed to show modal, Interaction expired or already replied.", error.message);
+            // ตอบกลับชั่วคราวเพื่อจบ Interaction และแจ้งให้ผู้ใช้ลองใหม่
+            return interaction.reply({ 
+                content: "❌ **เกิดข้อผิดพลาด!** กรุณาลองกดปุ่มตั้งค่าใหม่อีกครั้งทันที", 
+                ephemeral: true 
+            }).catch(() => {});
+        }
         return;
     }
 
@@ -416,6 +429,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const newChannelIdsRaw = interaction.fields.getTextInputValue('channel_list_input');
             const newBatchDelayRaw = interaction.fields.getTextInputValue('batch_delay_input');
 
+            // บันทึกค่าใหม่ลงใน CONFIG object
             CONFIG.SPREADSHEET_ID = newSpreadsheetId;
             CONFIG.SHEET_NAME = newSheetName;
             CONFIG.CHANNEL_IDS = newChannelIdsRaw
@@ -423,22 +437,41 @@ client.on(Events.InteractionCreate, async (interaction) => {
                                  : [];
             CONFIG.BATCH_DELAY = parseInt(newBatchDelayRaw) || 150;
 
+            // 1. บันทึก CONFIG ลงไฟล์
             saveConfig();
 
-            // 1. แก้ไข Reply ให้แสดงผลสำเร็จ (ใช้ข้อความเดิม)
+            // 2. ***** หาและอัปเดตข้อความควบคุมเดิม *****
+            const commandChannel = await client.channels.fetch(CONFIG.COMMAND_CHANNEL_ID);
+
+            if (commandChannel && commandChannel.isTextBased()) {
+                // ต้อง fetch ใหม่เพื่อหาข้อความที่มีปุ่มควบคุม
+                const messages = await commandChannel.messages.fetch({ limit: 5 });
+                const existingControlMessage = messages.find(m =>
+                    m.components.length > 0 &&
+                    m.components[0].components.some(c => c.customId === COUNT_BUTTON_ID)
+                );
+
+                if (existingControlMessage) {
+                    // อัปเดตข้อความควบคุมหลักด้วยค่า CONFIG ใหม่
+                    const updatedMessage = getStartCountMessage();
+                    await existingControlMessage.edit(updatedMessage);
+                    console.log("✅ Updated control message with new config.");
+                }
+            }
+            // ********************************************
+
+            // 3. แก้ไข Reply ให้แสดงผลสำเร็จ (ephemeral reply)
             await interaction.editReply({
-                content: `✅ **บันทึกการตั้งค่าเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`, 
-                ephemeral: true // เป็นข้อความชั่วคราว
+                content: `✅ **บันทึกการตั้งค่าและอัปเดตสถานะเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`, 
+                ephemeral: true
             });
 
-            // 2. รอนาน 5 วินาที
+            // 4. รอนาน 5 วินาทีและลบข้อความตอบกลับ
             await new Promise((r) => setTimeout(r, 5000));
-            
-            // 3. ลบข้อความตอบกลับด้วยเมธอด deleteReply()
             await interaction.deleteReply().catch(() => {});
 
         } catch (error) {
-            console.error("❌ Error processing modal submit:", error);
+            console.error("❌ Error processing modal submit or updating message:", error);
             await interaction.editReply({
                 content: `❌ **เกิดข้อผิดพลาดในการบันทึกค่า!** โปรดตรวจสอบ Log ของบอท`,
                 ephemeral: true
