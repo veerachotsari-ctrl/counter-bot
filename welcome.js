@@ -10,7 +10,6 @@ const {
     TextInputBuilder,
     TextInputStyle,
     EmbedBuilder,
-    // [แก้ไข: เพิ่ม MessageFlags]
     MessageFlags 
 } = require('discord.js');
 
@@ -39,7 +38,7 @@ const CUSTOM_ID = {
 const COMMANDS = [
     {
         name: 'welcome_status',
-        description: 'ตรวจสอบสถานะและข้อความต้อนรับ/บอกลาปัจจุบัน พร้อมปุ่มตั้งค่า',
+        description: 'ตรวจสอบสถานะและข้อความต้อนรับ/บอกลาปัจจุบัน', // คำอธิบายถูกแก้ให้สั้นลง
     },
     {
         name: 'set_welcome_channel',
@@ -174,7 +173,7 @@ async function handleSlashCommand(interaction) {
     if (commandName.startsWith('set_') && !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
         return interaction.reply({
             content: '❌ คุณไม่มีสิทธิ์ `Manage Server` ในการใช้คำสั่งตั้งค่านี้',
-            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
+            flags: MessageFlags.Ephemeral
         });
     }
 
@@ -190,22 +189,18 @@ async function handleSlashCommand(interaction) {
                 **ℹ️ ตัวแปรที่ใช้ได้:** \`{user}\` (User#1234), \`{mention}\` (@user), \`{server}\` (ชื่อเซิร์ฟเวอร์), \`{membercount}\` (จำนวนสมาชิก), \`{nickname}\` (ชื่อเล่น), \`{username}\` (ชื่อไม่มี#)
             `;
             
+            // ❌ ลบส่วนการสร้างปุ่มออกไปแล้ว
+            /*
             const editWelcomeBtn = new ButtonBuilder()
                 .setCustomId(CUSTOM_ID.BUTTON_EDIT_WELCOME)
-                .setLabel('✏️ แก้ไขข้อความต้อนรับ')
-                .setStyle(ButtonStyle.Primary); 
-
-            const editGoodbyeBtn = new ButtonBuilder()
-                .setCustomId(CUSTOM_ID.BUTTON_EDIT_GOODBYE)
-                .setLabel('✂️ แก้ไขข้อความบอกลา')
-                .setStyle(ButtonStyle.Danger); 
-
+                ...
             const row = new ActionRowBuilder().addComponents(editWelcomeBtn, editGoodbyeBtn);
+            */
 
             await interaction.reply({ 
                 content: statusMessage, 
-                components: [row], 
-                flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
+                // ❌ ลบ components: [row] ออกไปแล้ว
+                flags: MessageFlags.Ephemeral 
             });
             break;
 
@@ -214,7 +209,7 @@ async function handleSlashCommand(interaction) {
             config.channelId = channel.id;
             await interaction.reply({
                 content: `✅ ตั้งค่าช่องต้อนรับ/บอกลาสำเร็จแล้ว: ${channel}`,
-                flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
+                flags: MessageFlags.Ephemeral
             });
             break;
     }
@@ -226,10 +221,11 @@ async function handleButton(interaction) {
     if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
         return interaction.reply({
             content: '❌ คุณไม่มีสิทธิ์ `Manage Server` ในการแก้ไขข้อความ',
-            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
+            flags: MessageFlags.Ephemeral
         });
     }
     
+    // โค้ดส่วนนี้ยังคงอยู่ เพื่อให้การตั้งค่าผ่านปุ่มที่เคยถูกสร้างก่อนหน้ายังทำงานได้
     if (interaction.customId === CUSTOM_ID.BUTTON_EDIT_WELCOME) {
         // สร้าง Modal สำหรับ WELCOME
         const modal = new ModalBuilder()
@@ -284,7 +280,7 @@ async function handleModalSubmit(interaction) {
 
         await interaction.reply({
             content: `✅ ข้อความต้อนรับถูกอัปเดตสำเร็จแล้ว! ดูตัวอย่าง:\n\`\`\`${newWelcomeMessage}\`\`\``,
-            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
+            flags: MessageFlags.Ephemeral
         });
 
     } else if (interaction.customId === CUSTOM_ID.MODAL_EDIT_GOODBYE) {
@@ -293,7 +289,7 @@ async function handleModalSubmit(interaction) {
 
         await interaction.reply({
             content: `✅ ข้อความบอกลาถูกอัปเดตสำเร็จแล้ว! ดูตัวอย่าง:\n\`\`\`${newGoodbyeMessage}\`\`\``,
-            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
+            flags: MessageFlags.Ephemeral
         });
     }
 }
