@@ -461,9 +461,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             // 3. แก้ไข Reply ให้แสดงผลสำเร็จ (ephemeral reply)
             await interaction.editReply({
-                content: `✅ **บันทึกการตั้งค่าและอัปเดตสถานะเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`, 
-                ephemeral: true
-            });
+            content: `✅ **บันทึกการตั้งค่าและอัปเดตสถานะเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`,
+            flags: 64
+        });
 
             // 4. รอนาน 5 วินาทีและลบข้อความตอบกลับ
             await new Promise((r) => setTimeout(r, 5000));
