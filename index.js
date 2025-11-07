@@ -106,15 +106,13 @@ const client = new Client({
 // =========================================================
 
 async function clearCountsOnly() {
-    const range = `${CONFIG.SHEET_NAME}!C${STARTING_ROW}:${String.fromCharCode(65 + 2 + CONFIG.CHANNEL_IDS.length - 1)}`;
+    const range = `${CONFIG.SHEET_NAME}!C${STARTING_ROW}:E`; // ✅ ล้างเฉพาะ C–E ตั้งแต่แถวที่กำหนด (เช่น 4)
     try {
         await gsapi.spreadsheets.values.clear({
             spreadsheetId: CONFIG.SPREADSHEET_ID,
             range,
         });
-        console.log(
-            "✅ Cleared previous mention counts (C:...) but kept usernames.",
-        );
+        console.log("✅ Cleared columns C–E (from row 4 down) but kept F–Z and header safe.");
     } catch (error) {
         console.error("❌ Error clearing counts:", error);
         throw error;
