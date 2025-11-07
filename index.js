@@ -422,10 +422,11 @@ if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
         // ✅ แก้จุดนี้ให้แน่ใจว่าไม่มี deferReply ก่อน showModal
         await interaction.showModal(modal);
 
-    } catch (error) {
+   } catch (error) {
         console.error('❌ Error showing modal:', error);
         if (!interaction.replied) {
-            await interaction.reply({ content: 'เกิดข้อผิดพลาดในการเปิดหน้าต่างตั้งค่า ❌', ephemeral: true });
+            // [แก้ไข] เปลี่ยน 'ephemeral: true' เป็น 'flags: 64'
+            await interaction.reply({ content: 'เกิดข้อผิดพลาดในการเปิดหน้าต่างตั้งค่า ❌', flags: 64 }); 
         }
     }
     return;
