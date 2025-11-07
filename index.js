@@ -420,7 +420,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
     if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
         // ต้อง deferReply ก่อน เพราะเราใช้ editReply()
-        await interaction.deferReply({ ephemeral: true }); 
+        await interaction.deferReply({ flags: 64 });
 
         try {
             const newSpreadsheetId = interaction.fields.getTextInputValue('spreadsheet_id_input');
@@ -459,7 +459,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
             // ********************************************
 
-            // 3. แก้ไข Reply ให้แสดงผลสำเร็จ (ephemeral reply)
+            // 3. แก้ไข Reply ให้แสดงผลสำเร็จ 
             await interaction.editReply({
             content: `✅ **บันทึกการตั้งค่าและอัปเดตสถานะเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`,
             flags: 64
