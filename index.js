@@ -325,9 +325,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             if (!CONFIG.SPREADSHEET_ID || !CONFIG.SHEET_NAME || CONFIG.CHANNEL_IDS.length === 0) {
                 return await interaction.editReply({
-                    content: "❌ **การตั้งค่าไม่สมบูรณ์!** โปรดตั้งค่า Sheet ID, Sheet Name และ Channel IDs ในปุ่มตั้งค่าก่อน",
-                    ephemeral: true
-                });
+                content: "❌ **การตั้งค่าไม่สมบูรณ์!** โปรดตั้งค่า Sheet ID, Sheet Name และ Channel IDs ในปุ่มตั้งค่าก่อน",
+                flags: 64
+            });
+
             }
 
             await interaction.editReply("⏳ กำลังล้างข้อมูลการนับเก่าใน Sheet และเริ่มนับข้อความเก่า... โปรดรอสักครู่");
@@ -350,9 +351,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch (error) {
             console.error("[Historical Count Error]:", error);
             await interaction.editReply({
-                content: "❌ เกิดข้อผิดพลาดระหว่างการนับสถิติ โปรดตรวจสอบ Log ของบอท",
-                ephemeral: true
-            });
+            content: "❌ เกิดข้อผิดพลาดระหว่างการนับสถิติ โปรดตรวจสอบ Log ของบอท",
+            flags: 64
+        });
         }
         return;
     }
@@ -409,9 +410,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
             console.error("❌ Error 10062: Failed to show modal, Interaction expired or already replied.", error.message);
             // ตอบกลับชั่วคราวเพื่อจบ Interaction และแจ้งให้ผู้ใช้ลองใหม่
             return interaction.reply({ 
-                content: "❌ **เกิดข้อผิดพลาด!** กรุณาลองกดปุ่มตั้งค่าใหม่อีกครั้งทันที", 
-                ephemeral: true 
-            }).catch(() => {});
+            content: "❌ **เกิดข้อผิดพลาด!** กรุณาลองกดปุ่มตั้งค่าใหม่อีกครั้งทันที", 
+            flags: 64
+        }).catch(() => {});
         }
         return;
     }
@@ -471,9 +472,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch (error) {
             console.error("❌ Error processing modal submit or updating message:", error);
             await interaction.editReply({
-                content: `❌ **เกิดข้อผิดพลาดในการบันทึกค่า!** โปรดตรวจสอบ Log ของบอท`,
-                ephemeral: true
-            });
+            content: `❌ **เกิดข้อผิดพลาดในการบันทึกค่า!** โปรดตรวจสอบ Log ของบอท`,
+            flags: 64
+        });
+
         }
     }
 }); 
