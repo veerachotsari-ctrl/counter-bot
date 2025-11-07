@@ -359,63 +359,65 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     // --- 2. การกดปุ่มตั้งค่า (CONFIG_BUTTON_ID) ---
-    if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
+if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
+    try {
+        // สร้าง Modal สำหรับตั้งค่า
         const modal = new ModalBuilder()
             .setCustomId(CONFIG_MODAL_ID)
-            .setTitle('⚙️ แก้ไข Config (บันทึกในไฟล์)');
+            .setTitle('🛠️ ตั้งค่าการเชื่อมต่อ');
 
-        const spreadsheetIdInput = new TextInputBuilder()
+        // ช่องกรอก Spreadsheet ID
+        const spreadsheetInput = new TextInputBuilder()
             .setCustomId('spreadsheet_id_input')
-            .setLabel("Google Sheet ID")
+            .setLabel('Google Spreadsheet ID')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
-            .setValue(CONFIG.SPREADSHEET_ID);
+            .setValue(CONFIG.SPREADSHEET_ID || '');
 
+        // ช่องกรอกชื่อชีต
         const sheetNameInput = new TextInputBuilder()
             .setCustomId('sheet_name_input')
-            .setLabel("Sheet Name")
+            .setLabel('ชื่อชีต (Sheet Name)')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
-            .setValue(CONFIG.SHEET_NAME);
+            .setValue(CONFIG.SHEET_NAME || '');
 
-        const channelIds = (CONFIG.CHANNEL_IDS || []).join(', ');
-
+        // ช่องกรอก Channel IDs (รองรับหลายช่อง)
         const channelListInput = new TextInputBuilder()
             .setCustomId('channel_list_input')
-            .setLabel("Channel IDs (รูปแบบ: id1,id2,id3)")
+            .setLabel('Channel IDs (คั่นด้วย ,)')
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(false)
-            .setValue(channelIds);
+            .setValue(CONFIG.CHANNEL_IDS?.join(', ') || '');
 
+        // ช่องกรอก batch delay
         const batchDelayInput = new TextInputBuilder()
             .setCustomId('batch_delay_input')
-            .setLabel("Batch Delay (ms)")
+            .setLabel('Batch Delay (ms) — แนะนำ 100-500')
             .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setValue(String(CONFIG.BATCH_DELAY || 150));
+            .setRequired(false)
+            .setValue(CONFIG.BATCH_DELAY?.toString() || '150');
 
-        // ❌ Note: เราละ UPDATE_DELAY ไว้เพื่อไม่ให้เกิน 5 Input
+        // รวมช่องต่าง ๆ เป็นแถว
+        const row1 = new ActionRowBuilder().addComponents(spreadsheetInput);
+        const row2 = new ActionRowBuilder().addComponents(sheetNameInput);
+        const row3 = new ActionRowBuilder().addComponents(channelListInput);
+        const row4 = new ActionRowBuilder().addComponents(batchDelayInput);
 
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(spreadsheetIdInput),
-            new ActionRowBuilder().addComponents(sheetNameInput),
-            new ActionRowBuilder().addComponents(channelListInput),
-            new ActionRowBuilder().addComponents(batchDelayInput)
-        );
+        modal.addComponents(row1, row2, row3, row4);
 
-        // ✅ ป้องกันบอท Crash จาก Error 10062
-        try {
-            await interaction.showModal(modal);
-        } catch (error) {
-            console.error("❌ Error 10062: Failed to show modal, Interaction expired or already replied.", error.message);
-            // ตอบกลับชั่วคราวเพื่อจบ Interaction และแจ้งให้ผู้ใช้ลองใหม่
-            return interaction.reply({ 
-            content: "❌ **เกิดข้อผิดพลาด!** กรุณาลองกดปุ่มตั้งค่าใหม่อีกครั้งทันที", 
-            flags: 64
-        }).catch(() => {});
+        // ✅ แก้จุดนี้ให้แน่ใจว่าไม่มี deferReply ก่อน showModal
+        await interaction.showModal(modal);
+
+    } catch (error) {
+        console.error('❌ Error showing modal:', error);
+        if (!interaction.replied) {
+            await interaction.reply({ content: 'เกิดข้อผิดพลาดในการเปิดหน้าต่างตั้งค่า ❌', ephemeral: true });
         }
-        return;
     }
+    return;
+}
+
 
     // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
     if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
