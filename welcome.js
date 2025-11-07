@@ -9,7 +9,9 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder // นำเข้าสำหรับข้อความสวยงาม
+    EmbedBuilder,
+    // [แก้ไข: เพิ่ม MessageFlags]
+    MessageFlags 
 } = require('discord.js');
 
 // ----------------------------------------------------
@@ -96,21 +98,11 @@ function initializeWelcomeModule(client) {
             .replace('{nickname}', member.displayName) 
             .replace('{username}', member.user.username) 
             .replace('{mention}', `<@${member.id}>`)    // @ แท็กผู้ใช้
-            .replace('{server}', member.guild.name)     
+            .replace('{server}', member.guild.name)      
             .replace('{membercount}', member.guild.memberCount); 
 
         // สร้าง Embed สวยงามพร้อมรูปโปรไฟล์
-        const welcomeEmbed = new EmbedBuilder()
-            .setColor(0x00FF00) // สีเขียว
-            .setTitle(`🎉 ยินดีต้อนรับสู่ ${member.guild.name}!`)
-            .setDescription(processedMessage)
-            .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 })) // รูปโปรไฟล์
-            .addFields(
-                { name: '👤 สมาชิกใหม่', value: `<@${member.id}>`, inline: true },
-                { name: '👥 สมาชิกรวม', value: `${member.guild.memberCount} คน`, inline: true }
-            )
-            .setTimestamp()
-            .setFooter({ text: 'Fresh Town Police Bot', iconURL: client.user.displayAvatarURL() });
+        const welcomeEmbed = createStatusEmbed(member, processedMessage, client, true);
 
         // ส่งข้อความพร้อม Embed และ Mention สมาชิกใหม่
         channel.send({ content: `<@${member.id}>`, embeds: [welcomeEmbed] });
@@ -128,27 +120,48 @@ function initializeWelcomeModule(client) {
             .replace('{nickname}', member.displayName) 
             .replace('{username}', member.user.username) 
             .replace('{mention}', `<@${member.id}>`)    // @ แท็กผู้ใช้ (แม้จะออกจากเซิร์ฟเวอร์ไปแล้ว)
-            .replace('{server}', member.guild.name)     
+            .replace('{server}', member.guild.name)      
             .replace('{membercount}', member.guild.memberCount); 
 
         // สร้าง Embed สวยงามพร้อมรูปโปรไฟล์
-        const goodbyeEmbed = new EmbedBuilder()
-            .setColor(0xFF0000) // สีแดง
-            .setTitle(`😭 สมาชิกออกจากเซิร์ฟเวอร์`)
-            .setDescription(processedMessage)
-            .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 })) // รูปโปรไฟล์
-            .addFields(
-                // *** แสดงเป็น {mention} ตามที่ร้องขอ ***
-                { name: '👤 ผู้จากไป', value: `<@${member.id}>`, inline: true }, 
-                { name: '👥 สมาชิกที่เหลือ', value: `${member.guild.memberCount} คน`, inline: true }
-            )
-            .setTimestamp()
-            .setFooter({ text: 'Fresh Town Police Bot', iconURL: client.user.displayAvatarURL() });
+        const goodbyeEmbed = createStatusEmbed(member, processedMessage, client, false);
 
         // ส่งข้อความพร้อม Embed
         channel.send({ embeds: [goodbyeEmbed] });
     });
 }
+
+/**
+ * [เพิ่มฟังก์ชัน] สร้าง Embed สำหรับข้อความต้อนรับ/บอกลา
+ * @param {import('discord.js').GuildMember} member
+ * @param {string} message - ข้อความที่ประมวลผลแล้ว
+ * @param {import('discord.js').Client} client
+ * @param {boolean} isWelcome - true ถ้าเป็นข้อความต้อนรับ, false ถ้าเป็นบอกลา
+ */
+function createStatusEmbed(member, message, client, isWelcome = true) {
+    const color = isWelcome ? 0x00FF00 : 0xFF0000; // เขียวสำหรับต้อนรับ, แดงสำหรับบอกลา
+    const title = isWelcome 
+        ? `🎉 ยินดีต้อนรับสู่ ${member.guild.name}!` 
+        : `😭 สมาชิกออกจากเซิร์ฟเวอร์`;
+    const fieldName1 = isWelcome ? '👤 สมาชิกใหม่' : '👤 ผู้จากไป';
+    const fieldName2 = isWelcome ? '👥 สมาชิกรวม' : '👥 สมาชิกที่เหลือ';
+    
+    // ใช้ member.guild.memberCount ตรงตามโค้ดเดิมและตัวแปร {membercount}
+    const memberCountValue = `${member.guild.memberCount} คน`;
+
+    return new EmbedBuilder()
+        .setColor(color) 
+        .setTitle(title)
+        .setDescription(message)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+        .addFields(
+            { name: fieldName1, value: `<@${member.id}>`, inline: true },
+            { name: fieldName2, value: memberCountValue, inline: true }
+        )
+        .setTimestamp()
+        .setFooter({ text: 'Fresh Town Police Bot', iconURL: client.user.displayAvatarURL() });
+}
+
 
 // ----------------------------------------------------
 // III. INTERACTION HANDLERS (จัดการการโต้ตอบ)
@@ -161,7 +174,7 @@ async function handleSlashCommand(interaction) {
     if (commandName.startsWith('set_') && !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
         return interaction.reply({
             content: '❌ คุณไม่มีสิทธิ์ `Manage Server` ในการใช้คำสั่งตั้งค่านี้',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
         });
     }
 
@@ -192,7 +205,7 @@ async function handleSlashCommand(interaction) {
             await interaction.reply({ 
                 content: statusMessage, 
                 components: [row], 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
             });
             break;
 
@@ -201,7 +214,7 @@ async function handleSlashCommand(interaction) {
             config.channelId = channel.id;
             await interaction.reply({
                 content: `✅ ตั้งค่าช่องต้อนรับ/บอกลาสำเร็จแล้ว: ${channel}`,
-                ephemeral: true
+                flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
             });
             break;
     }
@@ -213,7 +226,7 @@ async function handleButton(interaction) {
     if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
         return interaction.reply({
             content: '❌ คุณไม่มีสิทธิ์ `Manage Server` ในการแก้ไขข้อความ',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
         });
     }
     
@@ -223,7 +236,6 @@ async function handleButton(interaction) {
             .setCustomId(CUSTOM_ID.MODAL_EDIT_WELCOME)
             .setTitle('แก้ไขข้อความต้อนรับ');
 
-        // แก้ไข: ใช้ Label ที่สั้นลงเพื่อแก้ปัญหา Error
         const welcomeInput = new TextInputBuilder()
             .setCustomId(CUSTOM_ID.INPUT_WELCOME_MESSAGE)
             .setLabel("ข้อความต้อนรับใหม่") 
@@ -242,7 +254,6 @@ async function handleButton(interaction) {
             .setCustomId(CUSTOM_ID.MODAL_EDIT_GOODBYE)
             .setTitle('แก้ไขข้อความบอกลา');
 
-        // แก้ไข: ใช้ Label ที่สั้นลงเพื่อแก้ปัญหา Error
         const goodbyeInput = new TextInputBuilder()
             .setCustomId(CUSTOM_ID.INPUT_GOODBYE_MESSAGE)
             .setLabel("ข้อความบอกลาใหม่") 
@@ -259,13 +270,21 @@ async function handleButton(interaction) {
 
 /** จัดการ Modal Submission */
 async function handleModalSubmit(interaction) {
+    // [แก้ไข: ตรวจสอบสิทธิ์ Modal Submit]
+    if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
+        return interaction.reply({
+            content: '❌ คุณไม่มีสิทธิ์ `Manage Server` ในการตั้งค่าข้อความ',
+            flags: MessageFlags.Ephemeral 
+        });
+    }
+    
     if (interaction.customId === CUSTOM_ID.MODAL_EDIT_WELCOME) {
         const newWelcomeMessage = interaction.fields.getTextInputValue(CUSTOM_ID.INPUT_WELCOME_MESSAGE);
         config.welcomeMessage = newWelcomeMessage;
 
         await interaction.reply({
             content: `✅ ข้อความต้อนรับถูกอัปเดตสำเร็จแล้ว! ดูตัวอย่าง:\n\`\`\`${newWelcomeMessage}\`\`\``,
-            ephemeral: true 
+            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
         });
 
     } else if (interaction.customId === CUSTOM_ID.MODAL_EDIT_GOODBYE) {
@@ -274,7 +293,7 @@ async function handleModalSubmit(interaction) {
 
         await interaction.reply({
             content: `✅ ข้อความบอกลาถูกอัปเดตสำเร็จแล้ว! ดูตัวอย่าง:\n\`\`\`${newGoodbyeMessage}\`\`\``,
-            ephemeral: true 
+            flags: MessageFlags.Ephemeral // [แก้ไข: ใช้ flags แทน ephemeral: true]
         });
     }
 }
