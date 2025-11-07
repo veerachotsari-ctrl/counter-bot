@@ -1,3 +1,5 @@
+// index.js (ไฟล์หลัก)
+
 require("dotenv").config();
 const fs = require("fs");
 const http = require("http");
@@ -12,9 +14,13 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
+    EmbedBuilder, // <<-- เพิ่ม EmbedBuilder
 } = require("discord.js");
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
+
+// ⭐️ [เพิ่ม] โหลด Welcome/Goodbye Module
+const { initializeWelcomeModule } = require('./welcome.js'); 
 
 // =========================================================
 // 🌐 CONFIG, CONSTANTS & INITIALIZATION
@@ -98,8 +104,15 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
+        // 🚨 [สำคัญ] ต้องเพิ่ม Intents เหล่านี้สำหรับ Welcome/Goodbye
+        GatewayIntentBits.GuildPresences, // อาจจะจำเป็นสำหรับ status
+        GatewayIntentBits.GuildMembers, // <<-- สำคัญที่สุดสำหรับ guildMemberAdd/Remove
     ],
 });
+
+// ⭐️ [เพิ่ม] เรียกใช้ฟังก์ชัน Welcome Module ทันที
+initializeWelcomeModule(client);
+
 
 // =========================================================
 // ⚙️ GOOGLE SHEET FUNCTIONS
@@ -434,8 +447,8 @@ if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
             CONFIG.SPREADSHEET_ID = newSpreadsheetId;
             CONFIG.SHEET_NAME = newSheetName;
             CONFIG.CHANNEL_IDS = newChannelIdsRaw
-                                 ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, MAX_CHANNELS)
-                                 : [];
+                                         ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, MAX_CHANNELS)
+                                         : [];
             CONFIG.BATCH_DELAY = parseInt(newBatchDelayRaw) || 150;
 
             // 1. บันทึก CONFIG ลงไฟล์
@@ -480,6 +493,9 @@ if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
 
         }
     }
+    // ⭐️ [เพิ่ม] ปล่อย Interaction อื่นๆ ให้ Welcome Module จัดการ
+    // เนื่องจาก Welcome Module มี client.on('interactionCreate', ...) เป็นของตัวเองอยู่แล้ว
+    // จึงไม่จำเป็นต้องเพิ่มโค้ดที่นี่ แต่ต้องแน่ใจว่า Welcome Module ถูกเรียกใช้แล้ว (initializeWelcomeModule(client);)
 }); 
 
 // =========================================================
