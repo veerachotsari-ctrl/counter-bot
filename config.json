@@ -2,9 +2,9 @@
     "SPREADSHEET_ID": "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ",
     "SHEET_NAME": "test",
     "CHANNEL_IDS": [
-        "1433442881007259649",
-        "1433443588343337132",
-        "1436330102685306920"
+        "123",
+        "123",
+        "123"
     ],
     "BATCH_DELAY": 150,
     "UPDATE_DELAY": 50 
