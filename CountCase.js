@@ -174,16 +174,25 @@ async function processMessagesBatch(client, messages, channelIndex) {
         if (message.author.bot) continue;
         if (!message.content.includes("<@")) continue;
 
+        // ⭐️⭐️ การแก้ไขเริ่มตรงนี้: ใช้ Set เพื่อเก็บ ID ผู้ถูกแท็กที่ไม่ซ้ำในข้อความเดียว
+        const uniqueMentionedIds = new Set();
+        
         const mentionRegex = /<@!?(\d+)>/g;
         let match;
 
         while ((match = mentionRegex.exec(message.content)) !== null) {
             const id = match[1];
+            uniqueMentionedIds.add(id); // เก็บ ID ที่ถูกแท็ก
+        }
+
+        // ⭐️⭐️ นำ ID ที่ไม่ซ้ำทั้งหมดไปเพิ่มใน batchMap
+        for (const id of uniqueMentionedIds) {
             let displayName, username;
 
             if (userCache.has(id)) {
                 ({ displayName, username } = userCache.get(id));
             } else {
+                // โค้ดเดิมสำหรับดึงข้อมูลผู้ใช้/สมาชิก
                 try {
                     const guild = messages[0].guild;
                     const member = guild ? await guild.members.fetch(id) : null;
@@ -197,47 +206,27 @@ async function processMessagesBatch(client, messages, channelIndex) {
                         username = user.username;
                     }
                 } catch {
-                    const user = await client.users.fetch(id);
-                    displayName = user.username;
-                    username = user.username;
+                    // Fallback สำหรับกรณีหา user ใน guild ไม่เจอ
+                    try {
+                        const user = await client.users.fetch(id);
+                        displayName = user.username;
+                        username = user.username;
+                    } catch {
+                        // ไม่สามารถหาผู้ใช้ได้, ข้ามไป
+                        continue; 
+                    }
                 }
                 userCache.set(id, { displayName, username });
             }
 
             const key = `${displayName}|${username}`;
-            batchMap.set(key, (batchMap.get(key) || 0) + 1);
+            // เพิ่มการนับเพียง 1 ครั้งสำหรับผู้ถูกแท็กแต่ละคนที่ไม่ซ้ำในข้อความนี้
+            batchMap.set(key, (batchMap.get(key) || 0) + 1); 
         }
     }
 
     if (batchMap.size > 0) {
         await batchUpdateMentions(batchMap, channelIndex);
-    }
-}
-
-async function processOldMessages(client, channelId, channelIndex) {
-    try {
-        const channel = await client.channels.fetch(channelId);
-        if (!channel) return console.log(`❌ Channel ${channelId} not found. Skipping.`);
-
-        let lastId = null;
-
-        while (true) {
-            const options = { limit: 100 };
-            if (lastId) options.before = lastId;
-
-            const messages = await channel.messages.fetch(options);
-            if (messages.size === 0) break;
-
-            await processMessagesBatch(client, [...messages.values()], channelIndex);
-            lastId = messages.last().id;
-            await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY));
-        }
-
-        console.log(
-            `✅ Finished processing old messages for channel ${channel.name} (${channelId})`,
-        );
-    } catch (error) {
-        console.error(`❌ Error processing channel ${channelId}:`, error.message);
     }
 }
 
