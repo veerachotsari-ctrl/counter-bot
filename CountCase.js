@@ -10,7 +10,7 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
-    MessageFlags 
+    MessageFlags
 } = require("discord.js");
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
@@ -23,7 +23,7 @@ const credentials = {
     private_key: process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n') : null,
 };
 if (!credentials.client_email || !credentials.private_key) {
-     console.warn("⚠️ Google Sheets credentials not fully loaded from environment variables.");
+    console.warn("⚠️ Google Sheets credentials not fully loaded from environment variables.");
 }
 
 const auth = new JWT({
@@ -55,7 +55,7 @@ function loadConfig() {
             SPREADSHEET_ID: process.env.SPREADSHEET_ID || '',
             SHEET_NAME: process.env.SHEET_NAME || 'Sheet1',
             CHANNEL_IDS: [],
-            BATCH_DELAY: 150, 
+            BATCH_DELAY: 150,
             UPDATE_DELAY: 50,
             // ⚠️ COMMAND_CHANNEL_ID จะถูกกำหนดใน initializeCountCase
         };
@@ -83,11 +83,11 @@ function saveConfig() {
 loadConfig();
 
 // ---------------------------------------------------------
-// 3. GOOGLE SHEET FUNCTIONS (ย้ายมาที่นี่)
+// 3. GOOGLE SHEET FUNCTIONS
 // ---------------------------------------------------------
 
 async function clearCountsOnly() {
-    const range = `${CONFIG.SHEET_NAME}!C${STARTING_ROW}:E`; 
+    const range = `${CONFIG.SHEET_NAME}!C${STARTING_ROW}:E`;
     try {
         await gsapi.spreadsheets.values.clear({
             spreadsheetId: CONFIG.SPREADSHEET_ID,
@@ -163,7 +163,7 @@ async function batchUpdateMentions(batchMap, channelIndex) {
 }
 
 // ---------------------------------------------------------
-// 4. DISCORD MESSAGE PROCESSING (ย้ายมาที่นี่)
+// 4. DISCORD MESSAGE PROCESSING (แก้ไขการนับแท็กซ้ำและเพิ่ม processOldMessages)
 // ---------------------------------------------------------
 
 async function processMessagesBatch(client, messages, channelIndex) {
@@ -174,7 +174,7 @@ async function processMessagesBatch(client, messages, channelIndex) {
         if (message.author.bot) continue;
         if (!message.content.includes("<@")) continue;
 
-        // ⭐️⭐️ การแก้ไขเริ่มตรงนี้: ใช้ Set เพื่อเก็บ ID ผู้ถูกแท็กที่ไม่ซ้ำในข้อความเดียว
+        // ⭐️ ใช้ Set เพื่อเก็บ ID ผู้ถูกแท็กที่ไม่ซ้ำในข้อความเดียว
         const uniqueMentionedIds = new Set();
         
         const mentionRegex = /<@!?(\d+)>/g;
@@ -185,14 +185,14 @@ async function processMessagesBatch(client, messages, channelIndex) {
             uniqueMentionedIds.add(id); // เก็บ ID ที่ถูกแท็ก
         }
 
-        // ⭐️⭐️ นำ ID ที่ไม่ซ้ำทั้งหมดไปเพิ่มใน batchMap
+        // ⭐️ นำ ID ที่ไม่ซ้ำทั้งหมดไปเพิ่มใน batchMap
         for (const id of uniqueMentionedIds) {
             let displayName, username;
 
             if (userCache.has(id)) {
                 ({ displayName, username } = userCache.get(id));
             } else {
-                // โค้ดเดิมสำหรับดึงข้อมูลผู้ใช้/สมาชิก
+                // โค้ดสำหรับดึงข้อมูลผู้ใช้/สมาชิก
                 try {
                     const guild = messages[0].guild;
                     const member = guild ? await guild.members.fetch(id) : null;
@@ -230,8 +230,36 @@ async function processMessagesBatch(client, messages, channelIndex) {
     }
 }
 
+// 📌 ฟังก์ชันนี้ที่หายไป ถูกนำกลับมาเพื่อแก้ ReferenceError
+async function processOldMessages(client, channelId, channelIndex) {
+    try {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel) return console.log(`❌ Channel ${channelId} not found. Skipping.`);
+
+        let lastId = null;
+
+        while (true) {
+            const options = { limit: 100 };
+            if (lastId) options.before = lastId;
+
+            const messages = await channel.messages.fetch(options);
+            if (messages.size === 0) break;
+
+            await processMessagesBatch(client, [...messages.values()], channelIndex);
+            lastId = messages.last().id;
+            await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY));
+        }
+
+        console.log(
+            `✅ Finished processing old messages for channel ${channel.name} (${channelId})`,
+        );
+    } catch (error) {
+        console.error(`❌ Error processing channel ${channelId}:`, error.message);
+    }
+}
+
 // ---------------------------------------------------------
-// 5. MODULE INITIALIZATION (ฟังก์ชันหลักที่แก้ไข)
+// 5. MODULE INITIALIZATION
 // ---------------------------------------------------------
 
 // 🎨 DISCORD UI HANDLER
@@ -263,7 +291,7 @@ function initializeCountCase(client, commandChannelId) {
     // ⭐️ กำหนดค่า Channel ID ควบคุมให้กับ CONFIG
     CONFIG.COMMAND_CHANNEL_ID = commandChannelId;
     
-    client.once(Events.ClientReady, async () => { 
+    client.once(Events.ClientReady, async () => {
         console.log('[CountCase] Module ready. Command Channel ID:', CONFIG.COMMAND_CHANNEL_ID);
         
         try {
@@ -307,7 +335,7 @@ function initializeCountCase(client, commandChannelId) {
                 await clearCountsOnly();
 
                 for (let i = 0; i < CONFIG.CHANNEL_IDS.length; i++) {
-                    // 💡 ส่ง client เข้าไปใน processOldMessages
+                    // 💡 processOldMessages ถูกเพิ่มกลับมาแล้ว
                     await processOldMessages(client, CONFIG.CHANNEL_IDS[i], i);
                 }
 
@@ -377,7 +405,7 @@ function initializeCountCase(client, commandChannelId) {
             } catch (error) {
                 console.error('❌ Error showing modal:', error);
                 if (!interaction.replied) {
-                    await interaction.reply({ content: 'เกิดข้อผิดพลาดในการเปิดหน้าต่างตั้งค่า ❌', flags: MessageFlags.Ephemeral }); 
+                    await interaction.reply({ content: 'เกิดข้อผิดพลาดในการเปิดหน้าต่างตั้งค่า ❌', flags: MessageFlags.Ephemeral });
                 }
             }
             return;
@@ -397,8 +425,8 @@ function initializeCountCase(client, commandChannelId) {
                 CONFIG.SPREADSHEET_ID = newSpreadsheetId;
                 CONFIG.SHEET_NAME = newSheetName;
                 CONFIG.CHANNEL_IDS = newChannelIdsRaw
-                                         ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, MAX_CHANNELS)
-                                         : [];
+                                            ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, MAX_CHANNELS)
+                                            : [];
                 CONFIG.BATCH_DELAY = parseInt(newBatchDelayRaw) || 150;
 
                 // 1. บันทึก CONFIG ลงไฟล์ (⚠️ ค่านี้จะหายไปเมื่อบอทรีสตาร์ทบน Render)
@@ -419,7 +447,7 @@ function initializeCountCase(client, commandChannelId) {
                     }
                 }
 
-                // 3. แก้ไข Reply ให้แสดงผลสำเร็จ 
+                // 3. แก้ไข Reply ให้แสดงผลสำเร็จ
                 await interaction.editReply({
                     content: `✅ **บันทึกการตั้งค่าและอัปเดตสถานะเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`,
                     flags: MessageFlags.Ephemeral
@@ -438,7 +466,7 @@ function initializeCountCase(client, commandChannelId) {
 
             }
         }
-    }); 
+    });
 }
 
 module.exports = {
