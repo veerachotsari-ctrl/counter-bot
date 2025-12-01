@@ -17,8 +17,7 @@ const channel3Id = process.env.CH3;
 // =============================
 const jwtClient = new JWT({
   email: process.env.GOOGLE_SERVICE_EMAIL,
-  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\n/g, "
-"),
+  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
