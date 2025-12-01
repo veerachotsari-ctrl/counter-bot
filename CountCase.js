@@ -1,11 +1,11 @@
-// CountCase.js - rebuilt full version
-// NOTE: Replace channel1Id, channel2Id, channel3Id before use
+// CountCase.js - Ultra Optimized Version (Rate-Limit Aware, Low CPU)
+// MANN + MEW SPECIAL EDITION 💙
 
-const { google } = require('googleapis');
-const { JWT } = require('google-auth-library');
+const { google } = require("googleapis");
+const { JWT } = require("google-auth-library");
 
 // =============================
-// CONFIG
+// ENV CONFIG
 // =============================
 const spreadsheetId = process.env.SHEET_ID;
 const channel1Id = process.env.CH1;
@@ -13,45 +13,67 @@ const channel2Id = process.env.CH2;
 const channel3Id = process.env.CH3;
 
 // =============================
-// AUTH
+// GOOGLE AUTH
 // =============================
 const jwtClient = new JWT({
   email: process.env.GOOGLE_SERVICE_EMAIL,
-  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\n/g, "
+"),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
+
 const sheets = google.sheets({ version: "v4", auth: jwtClient });
+
+// =============================
+// RATE LIMIT AWARE FETCH
+// =============================
+async function safeFetch(channel, opts) {
+  try {
+    return await channel.messages.fetch(opts);
+  } catch (e) {
+    if (e.status === 429) {
+      const wait = (e.retry_after || 1) * 1000;
+      console.log(`[RATE LIMIT] wait ${wait}ms`);
+      await new Promise((res) => setTimeout(res, wait));
+      return safeFetch(channel, opts);
+    }
+    throw e;
+  }
+}
 
 // =============================
 // MAIN COUNT FUNCTION
 // =============================
 async function CountCase(client) {
-  console.log("[COUNT] Start counting...");
+  console.log("[COUNT] Start optimized counting...");
 
   const counts = {};
+  const CHANNELS = [channel1Id, channel2Id, channel3Id];
 
-  const channels = [channel1Id, channel2Id, channel3Id];
-
-  for (const ch of channels) {
-    const channel = await client.channels.fetch(ch).catch(() => null);
-    if (!channel) continue;
+  for (const cid of CHANNELS) {
+    const ch = await client.channels.fetch(cid).catch(() => null);
+    if (!ch) continue;
 
     let lastId = null;
     let done = false;
 
     while (!done) {
-      const messages = await channel.messages.fetch({ limit: 100, before: lastId }).catch(() => null);
-      if (!messages || messages.size === 0) break;
+      const msgs = await safeFetch(ch, { limit: 100, before: lastId }).catch(() => null);
+      if (!msgs || msgs.size === 0) break;
 
-      messages.forEach((message) => {
-        const userId = message.author.id;
-        const displayName = message.member?.displayName || message.author.username;
-        const username = message.author.username;
+      for (const msg of msgs.values()) {
+        const author = msg.author;
+        if (!author) continue;
 
-        if (!counts[userId]) {
-          counts[userId] = {
-            displayName,
-            username,
+        const uid = author.id;
+        const dname = msg.member?.displayName || author.username;
+        const uname = author.username;
+
+        // init cache
+        if (!counts[uid]) {
+          counts[uid] = {
+            displayName: dname,
+            username: uname,
             tagsChannel1: 0,
             tagsChannel2: 0,
             postChannel2: 0,
@@ -59,35 +81,38 @@ async function CountCase(client) {
           };
         }
 
-        // ========== CHANNEL 1 ==========
-        if (message.channelId === channel1Id) {
-          counts[userId].tagsChannel1 += message.mentions.users.size;
+        const c = counts[uid];
+        const mCount = msg.mentions?.users?.size || 0;
+
+        // CHANNEL 1
+        if (msg.channelId === channel1Id) c.tagsChannel1 += mCount;
+
+        // CHANNEL 2
+        if (msg.channelId === channel2Id) {
+          c.tagsChannel2 += mCount;
+          c.postChannel2 += 1;
         }
 
-        // ========== CHANNEL 2 ==========
-        if (message.channelId === channel2Id) {
-          counts[userId].tagsChannel2 += message.mentions.users.size;
-          counts[userId].postChannel2 += 1;
-        }
+        // CHANNEL 3
+        if (msg.channelId === channel3Id) c.tagsChannel3 += mCount;
+      }
 
-        // ========== CHANNEL 3 ==========
-        if (message.channelId === channel3Id) {
-          counts[userId].tagsChannel3 += message.mentions.users.size;
-        }
-      });
+      lastId = msgs.last().id;
+      if (msgs.size < 100) done = true;
 
-      lastId = messages.last().id;
-      if (messages.size < 100) done = true;
+      await new Promise((res) => setTimeout(res, 120)); // smooth fetch
     }
   }
 
+  // =============================
+  // WRITE TO SHEETS (BATCH ONLY)
+  // =============================
   console.log("[COUNT] Writing to Google Sheets...");
 
   const values = [["displayName", "username", "C_CH1", "D_CH2", "E_POST2", "F_CH3"]];
 
   for (const id in counts) {
     const c = counts[id];
-
     values.push([
       c.displayName,
       c.username,
@@ -105,7 +130,7 @@ async function CountCase(client) {
     requestBody: { values },
   });
 
-  console.log("[COUNT] DONE");
+  console.log("[COUNT] DONE — Ultra Optimized");
 }
 
 module.exports = CountCase;
