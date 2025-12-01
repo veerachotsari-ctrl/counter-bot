@@ -15,13 +15,21 @@ const channel3Id = process.env.CH3;
 // =============================
 // GOOGLE AUTH
 // =============================
+const privateKey = process.env.PRIVATE_KEY
+  ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n')
+  : null;
+
+if (!process.env.CLIENT_EMAIL || !privateKey) {
+  console.error('❌ GOOGLE credentials not set in environment!');
+}
+
 const jwtClient = new JWT({
-  email: process.env.GOOGLE_SERVICE_EMAIL,
-  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  email: process.env.CLIENT_EMAIL, // ใช้ชื่อ CLIENT_EMAIL ที่มีอยู่
+  key: privateKey,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
-const sheets = google.sheets({ version: "v4", auth: jwtClient });
+const sheets = google.sheets({ version: 'v4', auth: jwtClient });
 
 // =============================
 // RATE LIMIT AWARE FETCH
