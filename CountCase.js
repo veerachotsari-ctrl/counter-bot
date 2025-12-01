@@ -1,4 +1,4 @@
-// CountCase.js (โมดูลจัดการการนับสถิติและการตั้งค่า - พร้อม Progress 0–100%)
+// CountCase.js (โมดูลจัดการการนับสถิติและการตั้งค่า - ฉบับเต็มพร้อมแก้ไขประสิทธิภาพ)
 
 const fs = require("fs");
 const {
@@ -15,7 +15,7 @@ const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
 
 // ---------------------------------------------------------
-// 1. GOOGLE AUTH SETUP
+// 1. GOOGLE AUTH SETUP (เหมือนเดิม)
 // ---------------------------------------------------------
 const credentials = {
     client_email: process.env.CLIENT_EMAIL,
@@ -35,6 +35,7 @@ const gsapi = google.sheets({ version: "v4", auth });
 // ---------------------------------------------------------
 // 2. CONFIG, CONSTANTS & INITIALIZATION
 // ---------------------------------------------------------
+// รองรับ 4 คอลัมน์สถิติ (C, D, E, F)
 const MAX_CHANNELS = 4;
 let CONFIG = {};
 const CONFIG_FILE = "config.json";
@@ -42,13 +43,14 @@ const COUNT_BUTTON_ID = "start_historical_count";
 const CONFIG_BUTTON_ID = "open_config_modal";
 const CONFIG_MODAL_ID = "config_form_submit";
 const STARTING_ROW = 4;
+// กำหนด Index คอลัมน์ (0=A, 1=B, 2=C, 3=D, 4=E, 5=F)
 const COL_INDEX = {
-    C: 2,
-    D: 3,
-    E: 4,
-    F: 5,
+    C: 2, // Channel 1 Mentions
+    D: 3, // Channel 2 Mentions
+    E: 4, // Channel 2 Author
+    F: 5, // Channel 3 Mentions
 };
-const COUNT_COLS = Object.keys(COL_INDEX).length;
+const COUNT_COLS = Object.keys(COL_INDEX).length; // 4 คอลัมน์ (C, D, E, F)
 
 function loadConfig() {
     try {
@@ -87,9 +89,11 @@ function saveConfig() {
 loadConfig();
 
 // ---------------------------------------------------------
-// 3. GOOGLE SHEET FUNCTIONS
+// 3. GOOGLE SHEET FUNCTIONS (ปรับปรุงประสิทธิภาพ)
 // ---------------------------------------------------------
+
 async function clearCountsOnly() {
+    // ล้างข้อมูลคอลัมน์ C:F (จาก COUNT_COLS)
     const range = `${CONFIG.SHEET_NAME}!C${STARTING_ROW}:${String.fromCharCode(65 + 1 + COUNT_COLS)}`;
     try {
         await gsapi.spreadsheets.values.clear({
@@ -103,10 +107,13 @@ async function clearCountsOnly() {
     }
 }
 
+// 🚀 ฟังก์ชันใหม่: รวมการอัปเดตทั้งหมด (Mentions, Authors) ในรอบเดียว
+// masterCountMap: Key: "displayName|username", Value: [count_C, count_D, count_E, count_F]
 async function batchUpdateAllColumns(masterCountMap) {
     if (masterCountMap.size === 0) return;
 
-    const lastDataColLetter = String.fromCharCode(65 + 1 + COUNT_COLS);
+    // A. ดึงข้อมูลชีตทั้งหมด (A:B และคอลัมน์นับ C-F)
+    const lastDataColLetter = String.fromCharCode(65 + 1 + COUNT_COLS); // G (A=0, B=1, C=2, D=3, E=4, F=5 -> G=6)
     const dataRange = `${CONFIG.SHEET_NAME}!A${STARTING_ROW}:${lastDataColLetter}`;
 
     const response = await gsapi.spreadsheets.values.get({
@@ -114,53 +121,84 @@ async function batchUpdateAllColumns(masterCountMap) {
         range: dataRange,
     });
 
+    // กรองแถวที่มีข้อมูลในคอลัมน์ A หรือ B
     let rows = (response.data.values || []).filter(r => r.length > 0 && (r[0] || r[1]));
-    const updates = [];
-    const appendedRowsData = [];
 
+    const updates = [];
+    const appendedRowsData = []; // เก็บแถวใหม่ที่จะถูกเพิ่มเพื่ออัปเดต rows array ใน memory
+
+    // B. ลูปผ่าน Master Map เพื่อเตรียมการอัปเดต/เพิ่มแถว
     for (const [key, batchCounts] of masterCountMap.entries()) {
         const [displayName, username] = key.split("|");
-        let rowIndex = rows.findIndex((r) => r[0] === displayName && r[1] === username);
+
+        let rowIndex = rows.findIndex(
+            (r) => r[0] === displayName && r[1] === username,
+        );
 
         if (rowIndex >= 0) {
+            // 1. อัปเดตแถวที่มีอยู่ (Existing Row)
             const sheetRowIndex = STARTING_ROW + rowIndex;
             const currentRow = rows[rowIndex];
-            let newRowValues = [...currentRow];
+
+            let newRowValues = [...currentRow]; // Copy existing row
             let hasUpdate = false;
 
+            // ตรวจสอบและคำนวณค่าใหม่สำหรับคอลัมน์ C ถึง F (Index 2 ถึง 5)
             for (let i = 0; i < COUNT_COLS; i++) {
-                const colIndex = COL_INDEX.C + i;
-                const batchCount = batchCounts[i];
+                const colIndex = COL_INDEX.C + i; // 2, 3, 4, 5
+                const batchCount = batchCounts[i]; // 0, 1, 2, 3
+
                 if (batchCount > 0) {
                     const currentValue = parseInt(currentRow[colIndex] || "0");
                     const newCount = currentValue + batchCount;
+                    
+                    // สร้าง Update Object สำหรับคอลัมน์นั้นๆ
                     const colLetter = String.fromCharCode(65 + colIndex);
                     updates.push({
                         range: `${CONFIG.SHEET_NAME}!${colLetter}${sheetRowIndex}`,
                         values: [[newCount]],
                     });
+
+                    // อัปเดตข้อมูลในอาร์เรย์ rows เพื่อใช้ในการเช็คครั้งต่อไป
                     newRowValues[colIndex] = String(newCount);
                     hasUpdate = true;
                 }
             }
-            if (hasUpdate) rows[rowIndex] = newRowValues;
+            // ถ้ามีการอัปเดตอย่างน้อย 1 คอลัมน์ ให้อัปเดต rows array
+            if (hasUpdate) {
+                rows[rowIndex] = newRowValues;
+            }
+
         } else {
+            // 2. เพิ่มแถวใหม่ (Append New Row)
             const appendRow = STARTING_ROW + rows.length + appendedRowsData.length;
+            
+            // สร้างแถวข้อมูลใหม่: [displayName, username, count_C, count_D, count_E, count_F]
             const newRow = [displayName, username];
+            
+            // เติมค่า 0 สำหรับคอลัมน์ A และ B (ถ้ายังไม่ครบ)
             while (newRow.length < COL_INDEX.C) newRow.push('');
+
+            // เติมค่า C, D, E, F โดยใช้ batchCounts
             for (let i = 0; i < COUNT_COLS; i++) {
                 newRow[COL_INDEX.C + i] = batchCounts[i] > 0 ? String(batchCounts[i]) : '0';
             }
+
+            // เพิ่มการอัปเดต: การเพิ่มแถวใหม่ (A ถึงคอลัมน์สุดท้าย)
             updates.push({
                 range: `${CONFIG.SHEET_NAME}!A${appendRow}:${lastDataColLetter}${appendRow}`,
                 values: [newRow],
             });
+
+            // เพิ่มแถวใหม่ในหน่วยความจำเพื่อใช้ในการเช็คครั้งต่อไป (ในรอบนี้)
             appendedRowsData.push(newRow);
         }
     }
-
+    
+    // เพิ่มแถวที่ถูกสร้างใหม่ทั้งหมดเข้าใน rows array
     rows.push(...appendedRowsData);
 
+    // C. 🚀 เรียก Batch Update API เพียงครั้งเดียวเท่านั้น
     if (updates.length > 0) {
         await gsapi.spreadsheets.values.batchUpdate({
             spreadsheetId: CONFIG.SPREADSHEET_ID,
@@ -175,14 +213,19 @@ async function batchUpdateAllColumns(masterCountMap) {
 }
 
 // ---------------------------------------------------------
-// 4. DISCORD MESSAGE PROCESSING
+// 4. DISCORD MESSAGE PROCESSING (รองรับการนับผู้โพสต์ & รวม Map)
 // ---------------------------------------------------------
-async function getUserInfo(client, guild, id, userCache) {
-    if (userCache.has(id)) return userCache.get(id);
 
+// Helper Function: ดึงข้อมูลผู้ใช้ (Fetch and Cache)
+async function getUserInfo(client, guild, id, userCache) {
+    if (userCache.has(id)) {
+        return userCache.get(id);
+    }
+    
     let displayName, username;
     try {
         const member = guild ? await guild.members.fetch(id).catch(() => null) : null;
+        
         if (member) {
             displayName = member.displayName;
             username = member.user.username;
@@ -192,92 +235,99 @@ async function getUserInfo(client, guild, id, userCache) {
             username = user.username;
         }
     } catch {
-        displayName = `UnknownUser_${id}`;
-        username = `unknown_${id}`;
+         try {
+            const user = await client.users.fetch(id);
+            displayName = user.username;
+            username = user.username;
+         } catch {
+            displayName = `UnknownUser_${id}`;
+            username = `unknown_${id}`;
+         }
     }
     const userInfo = { displayName, username };
     userCache.set(id, userInfo);
     return userInfo;
 }
 
+// ✅ ปรับปรุง: processMessagesBatch (รวมการนับทั้งหมดใน Map เดียว)
 async function processMessagesBatch(client, messages, channelIndex) {
-    const masterCountMap = new Map();
+    // Key: "displayName|username" Value: [count_C, count_D, count_E, count_F]
+    const masterCountMap = new Map(); 
     const userCache = new Map();
+    
+    // กำหนด Col Index สำหรับ Mentions ของ Channel นี้ (2=C, 3=D, 5=F)
     const mentionColIndex = (channelIndex === 0) ? COL_INDEX.C : (channelIndex === 1) ? COL_INDEX.D : COL_INDEX.F;
-    const authorColIndex = COL_INDEX.E;
+    const authorColIndex = COL_INDEX.E; // 4
+
     const guild = messages[0]?.guild;
 
     for (const message of messages) {
         if (message.author.bot) continue;
 
+        // 1. นับ Mentions
         if (message.content.includes("<@")) {
             const uniqueMentionedIds = new Set();
             const mentionRegex = /<@!?(\d+)>/g;
             let match;
-            while ((match = mentionRegex.exec(message.content)) !== null) uniqueMentionedIds.add(match[1]);
+
+            while ((match = mentionRegex.exec(message.content)) !== null) {
+                uniqueMentionedIds.add(match[1]);
+            }
 
             for (const id of uniqueMentionedIds) {
                 const { displayName, username } = await getUserInfo(client, guild, id, userCache);
                 const key = `${displayName}|${username}`;
+                
+                // อัปเดต Map: เพิ่ม 1 ในคอลัมน์ Mentions ของ Channel ปัจจุบัน
+                // ตำแหน่งใน Array: 0=C, 1=D, 2=E, 3=F (Index - 2)
                 const counts = masterCountMap.get(key) || [0, 0, 0, 0];
-                counts[mentionColIndex - COL_INDEX.C] += 1;
+                counts[mentionColIndex - COL_INDEX.C] += 1; 
                 masterCountMap.set(key, counts);
             }
         }
-
-        if (channelIndex === 1) {
+        
+        // 2. นับ Author สำหรับ Channel 2 เท่านั้น (channelIndex = 1)
+        if (channelIndex === 1) { 
             const id = message.author.id;
             const { displayName, username } = await getUserInfo(client, guild, id, userCache);
             const authorKey = `${displayName}|${username}`;
+            
+            // อัปเดต Map: เพิ่ม 1 ในคอลัมน์ Author (E)
             const counts = masterCountMap.get(authorKey) || [0, 0, 0, 0];
-            counts[authorColIndex - COL_INDEX.C] += 1;
+            counts[authorColIndex - COL_INDEX.C] += 1; // ตำแหน่ง Array Index 2 (Col E)
             masterCountMap.set(authorKey, counts);
         }
     }
-
-    if (masterCountMap.size > 0) await batchUpdateAllColumns(masterCountMap);
+    
+    // 3. 🚀 เรียกฟังก์ชันอัปเดตเพียงครั้งเดียวสำหรับทุกคอลัมน์
+    if (masterCountMap.size > 0) {
+        await batchUpdateAllColumns(masterCountMap); 
+    }
 }
 
-// 📌 processOldMessages ปรับเพิ่ม Progress %
-async function processOldMessages(client, channelId, channelIndex, interaction=null) {
+// 📌 ฟังก์ชัน processOldMessages (เหมือนเดิม)
+async function processOldMessages(client, channelId, channelIndex) {
     try {
         const channel = await client.channels.fetch(channelId);
         if (!channel) return console.log(`❌ Channel ${channelId} not found. Skipping.`);
 
-        // นับ total messages
-        let totalMessages = 0;
-        let lastIdCount = null;
-        while (true) {
-            const optionsCount = { limit: 100 };
-            if (lastIdCount) optionsCount.before = lastIdCount;
-            const messagesCount = await channel.messages.fetch(optionsCount);
-            totalMessages += messagesCount.size;
-            if (messagesCount.size < 100) break;
-            lastIdCount = messagesCount.last().id;
-        }
-        console.log(`ℹ️ Total messages in channel ${channel.name}: ${totalMessages}`);
-
         let lastId = null;
         let processedCount = 0;
+
         console.log(`⏳ Starting process for channel ${channel.name} (${channelId})`);
 
         while (true) {
             const options = { limit: 100 };
             if (lastId) options.before = lastId;
+
             const messages = await channel.messages.fetch(options);
             if (messages.size === 0) break;
 
+            // 🚀 อัปเดต: เรียก processMessagesBatch ซึ่งมีการเรียก Batch Update เพียงครั้งเดียวต่อ 100 ข้อความ
             await processMessagesBatch(client, [...messages.values()], channelIndex);
-
+            
             processedCount += messages.size;
-            const percent = ((processedCount / totalMessages) * 100).toFixed(1);
-            console.log(`> Processed ${processedCount}/${totalMessages} messages (${percent}%) in channel ${channel.name}...`);
-
-            if (interaction) {
-                await interaction.editReply({
-                    content: `⏳ กำลังนับข้อความเก่าใน <#${channelId}>...\n> Processed: ${processedCount}/${totalMessages} (${percent}%)`,
-                }).catch(() => {});
-            }
+            console.log(`> Processed ${processedCount} messages in channel ${channel.name}...`);
 
             lastId = messages.last().id;
             await new Promise((r) => setTimeout(r, CONFIG.BATCH_DELAY));
@@ -292,8 +342,10 @@ async function processOldMessages(client, channelId, channelIndex, interaction=n
 }
 
 // ---------------------------------------------------------
-// 5. MODULE INITIALIZATION
+// 5. MODULE INITIALIZATION (เหมือนเดิม)
 // ---------------------------------------------------------
+
+// 🎨 DISCORD UI HANDLER
 function getStartCountMessage() {
     const validChannelIds = CONFIG.CHANNEL_IDS.slice(0, 3).filter(id => id && id.length > 10 && !isNaN(id)); 
 
@@ -321,6 +373,7 @@ function getStartCountMessage() {
         components: [row],
     };
 }
+
 
 function initializeCountCase(client, commandChannelId) {
     CONFIG.COMMAND_CHANNEL_ID = commandChannelId;
@@ -352,7 +405,7 @@ function initializeCountCase(client, commandChannelId) {
 
     client.on(Events.InteractionCreate, async (interaction) => {
         
-        // --- COUNT BUTTON ---
+        // --- 1. การกดปุ่มนับ (COUNT_BUTTON_ID) ---
         if (interaction.isButton() && interaction.customId === COUNT_BUTTON_ID) {
             try {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -369,7 +422,7 @@ function initializeCountCase(client, commandChannelId) {
                 await clearCountsOnly();
 
                 for (let i = 0; i < activeChannelIds.length; i++) {
-                    await processOldMessages(client, activeChannelIds[i], i, interaction);
+                    await processOldMessages(client, activeChannelIds[i], i);
                 }
 
                 await interaction.editReply({
@@ -390,7 +443,7 @@ function initializeCountCase(client, commandChannelId) {
             return;
         }
 
-        // --- CONFIG BUTTON ---
+        // --- 2. การกดปุ่มตั้งค่า (CONFIG_BUTTON_ID) ---
         if (interaction.isButton() && interaction.customId === CONFIG_BUTTON_ID) {
             try {
                 const modal = new ModalBuilder()
@@ -442,7 +495,7 @@ function initializeCountCase(client, commandChannelId) {
             return;
         }
 
-        // --- MODAL SUBMIT ---
+        // --- 3. การส่งข้อมูลจาก Modal (CONFIG_MODAL_ID) ---
         if (interaction.isModalSubmit() && interaction.customId === CONFIG_MODAL_ID) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -455,19 +508,46 @@ function initializeCountCase(client, commandChannelId) {
                 CONFIG.SPREADSHEET_ID = newSpreadsheetId;
                 CONFIG.SHEET_NAME = newSheetName;
                 CONFIG.CHANNEL_IDS = newChannelIdsRaw
-                                         ? newChannelIdsRaw.split(',').map(s => s.trim()).slice(0, 3)
-                                         : [];
+                                                 ? newChannelIdsRaw.split(',').map(id => id.trim()).filter(id => id.length > 10 && !isNaN(id)).slice(0, 3) 
+                                                 : [];
                 CONFIG.BATCH_DELAY = parseInt(newBatchDelayRaw) || 150;
 
                 saveConfig();
-                await interaction.editReply("✅ บันทึกการตั้งค่าเรียบร้อยแล้ว!");
+
+                const commandChannel = await client.channels.fetch(CONFIG.COMMAND_CHANNEL_ID);
+                if (commandChannel && commandChannel.isTextBased()) {
+                    const messages = await commandChannel.messages.fetch({ limit: 5 });
+                    const existingControlMessage = messages.find(m =>
+                        m.components.length > 0 &&
+                        m.components[0].components.some(c => c.customId === COUNT_BUTTON_ID)
+                    );
+
+                    if (existingControlMessage) {
+                        await existingControlMessage.edit(getStartCountMessage());
+                        console.log("✅ Updated control message with new config.");
+                    }
+                }
+
+                await interaction.editReply({
+                    content: `✅ **บันทึกการตั้งค่าและอัปเดตสถานะเรียบร้อย!** ข้อความนี้จะถูกลบใน 5 วินาที`,
+                    flags: MessageFlags.Ephemeral
+                });
+
+                await new Promise((r) => setTimeout(r, 5000));
+                await interaction.deleteReply().catch(() => {});
+
             } catch (error) {
-                console.error("❌ Error processing modal submit:", error);
-                await interaction.editReply("❌ เกิดข้อผิดพลาดในการบันทึกการตั้งค่า");
+                console.error("❌ Error processing modal submit or updating message:", error);
+                await interaction.editReply({
+                    content: `❌ **เกิดข้อผิดพลาดในการบันทึกค่า!** โปรดตรวจสอบ Log ของบอท`,
+                    flags: MessageFlags.Ephemeral
+                });
+
             }
-            return;
         }
     });
 }
 
-module.exports = { initializeCountCase, getStartCountMessage };
+module.exports = {
+    initializeCountCase
+};
