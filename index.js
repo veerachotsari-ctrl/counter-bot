@@ -11,6 +11,7 @@ const {
 // ⭐️ โหลดโมดูลที่แยกออกมา
 const { initializeWelcomeModule } = require('./welcome.js'); 
 const { initializeCountCase } = require('./CountCase.js'); 
+const { initializeDutyLogger } = require('./DutyLogger.js');   // ✅ เพิ่ม DutyLogger
 
 // =========================================================
 // 🌐 CONFIG & INITIALIZATION
@@ -27,13 +28,21 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,   
         GatewayIntentBits.GuildPresences, 
-        GatewayIntentBits.GuildMembers, 
     ],
 });
 
-// ⭐️ เรียกใช้โมดูลทั้งหมด โดยส่ง Channel ID ที่ต้องการไปด้วย
+// =========================================================
+// ⭐️ REGISTER MODULES
+// =========================================================
+
+// Welcome System
 initializeWelcomeModule(client);
+
+// Count Case System
 initializeCountCase(client, COMMAND_CHANNEL_ID); 
+
+// Duty Logger System (อ่าน embed, บันทึกเวลาเข้าเวร → Google Sheets)
+initializeDutyLogger(client);  // ✅ เพิ่มตรงนี้
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
