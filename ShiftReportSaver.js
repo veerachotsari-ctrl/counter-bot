@@ -1,26 +1,38 @@
 // ShiftReportSaver.js
 
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const appConfig = require('./config.json'); 
+const fs = require('fs'); // ⬅️ เพิ่ม fs เข้ามา
+
+// ⭐️ โหลดและแยกวิเคราะห์ (Parse) ไฟล์ config.json ด้วย fs.readFileSync
+let appConfig;
+try {
+    const configData = fs.readFileSync('./config.json', 'utf8');
+    appConfig = JSON.parse(configData);
+    console.log("✅ Config loaded successfully.");
+} catch (error) {
+    console.error("❌ ERROR loading or parsing config.json:", error.message);
+    // หากเกิดข้อผิดพลาดในการโหลดไฟล์ config ให้กำหนดค่าเริ่มต้นหรือหยุดการทำงาน
+    // (เราจะใช้ค่าจาก Environment Variables เป็นหลักอยู่แล้ว)
+    appConfig = { SPREADSHEET_ID: "", SHIFT_SHEET_NAME: "DefaultSheet", SHEET_NAME: "test" }; 
+    // ถ้าคุณมั่นใจว่า SPREADSHEET_ID ถูกกำหนดไว้ใน Environment Variables คุณอาจจะดึงจากตรงนั้นได้ถ้ามันไม่ใช่ค่า Sensitive
+}
 
 // ⭐️ ตั้งค่าสำหรับ Google Service Account จาก Environment Variables
 const creds = {
     client_email: process.env.CLIENT_EMAIL,
-    // สำคัญ: ต้องแทนที่ \n ใน private key ด้วย newline จริง
     private_key: process.env.PRIVATE_KEY.replace(/\\n/g, '\n'), 
 };
 
 // ⭐️ ตั้งค่าสำหรับบอท 
-// ดึง Channel ID จาก Environment
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID; 
 
-// ใช้ค่าจาก config.json
+// ใช้ค่าจาก config.json (ที่โหลดผ่าน fs)
 const SPREADSHEET_ID = appConfig.SPREADSHEET_ID; 
-// 🌟 เปลี่ยนมาใช้คีย์ใหม่สำหรับชื่อชีต
-const SHEET_TITLE = appConfig.SHIFT_SHEET_NAME; 
+const SHEET_TITLE = appConfig.SHIFT_SHEET_NAME; // ใช้งาน "ShiftTime"
 
 // =========================================================
 // ⏱️ LOGIC: Time/Date & Parsing Functions
+// ... (ส่วนนี้คงเดิม) ...
 // =========================================================
 
 function parseThaiDateTime(dateTimeString) {
@@ -100,7 +112,6 @@ function calculateDutyTimeSplits(entryTimeStr, exitTimeStr) {
 }
 
 function parseReportMessage(content) {
-    // ⭐️ ใช้ Regex ดึงข้อมูล: 
     const nameMatch = content.match(/ชื่อ\s*[\r\n]+(.*?)(?:\n|$)/i);
     const entryTimeMatch = content.match(/เวลาเข้างาน\s*[\r\n]+(.*?)(?:\n|$)/i);
     const exitTimeMatch = content.match(/เวลาออกงาน\s*[\r\n]+(.*?)(?:\n|$)/i);
@@ -117,6 +128,7 @@ function parseReportMessage(content) {
 
 // =========================================================
 // 💾 LOGIC: Google Sheets Integration
+// ... (ส่วนนี้คงเดิม) ...
 // =========================================================
 
 async function updateSheet(name, day, durationSeconds) {
@@ -124,7 +136,6 @@ async function updateSheet(name, day, durationSeconds) {
         const doc = new GoogleSpreadsheet(SPREADSHEET_ID);
         await doc.useServiceAccountAuth(creds); 
         
-        // ใช้ SHEET_TITLE ที่ดึงมาจาก SHIFT_SHEET_NAME
         const sheet = doc.sheetsByTitle[SHEET_TITLE]; 
         if (!sheet) throw new Error(`Sheet with title "${SHEET_TITLE}" not found.`);
 
@@ -136,19 +147,15 @@ async function updateSheet(name, day, durationSeconds) {
         let targetRow = rows.find(r => r['ชื่อ'] === name); 
 
         if (!targetRow) {
-            // ถ้าไม่พบ ให้สร้างแถวใหม่ (สมมติว่าคอลัมน์แรกในชีตชื่อ 'ชื่อ')
             targetRow = await sheet.addRow({ 'ชื่อ': name });
         }
         
         // 3. คำนวณและอัปเดตเวลา
-        // ดึงค่าปัจจุบันในคอลัมน์ของวันนั้น (เช่น 'จันทร์', 'อังคาร')
         const currentCellValue = targetRow[day] || '00:00:00'; 
         
-        // แปลงเวลาปัจจุบัน + เวลาใหม่ เป็นวินาที
         const currentSeconds = timeToSeconds(currentCellValue);
         const newTotalSeconds = currentSeconds + durationSeconds;
         
-        // อัปเดตค่าในแถวด้วยเวลาใหม่ที่รวมแล้ว
         targetRow[day] = secondsToTime(newTotalSeconds); 
         await targetRow.save(); 
 
@@ -161,6 +168,7 @@ async function updateSheet(name, day, durationSeconds) {
 
 // =========================================================
 // ⭐️ MAIN MODULE INITIALIZER
+// ... (ส่วนนี้คงเดิม) ...
 // =========================================================
 
 function initializeShiftReportSaver(client) {
@@ -170,12 +178,10 @@ function initializeShiftReportSaver(client) {
     }
     
     client.on('messageCreate', async message => {
-        // กรอง: เฉพาะ Channel รายงาน, ไม่ใช่บอทตัวนี้เอง, และต้องมีเนื้อหา
         if (message.channelId !== REPORT_CHANNEL_ID || message.author.id === client.user.id || !message.content) {
             return;
         }
 
-        // 1. แยกและคำนวณข้อมูลทั้งหมด
         const reportData = parseReportMessage(message.content);
 
         if (!reportData || reportData.timeSplits.length === 0) {
@@ -183,7 +189,6 @@ function initializeShiftReportSaver(client) {
             return;
         }
 
-        // 2. บันทึกลง Sheet: วนลูปสำหรับเวลาที่ถูกแบ่งแล้ว
         for (const split of reportData.timeSplits) {
             await updateSheet(reportData.name, split.day, split.durationSeconds);
         }
