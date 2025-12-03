@@ -1,11 +1,12 @@
 {
-    "SPREADSHEET_ID": "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ",
-    "SHEET_NAME": "test",
-    "CHANNEL_IDS": [
-        "123",
-        "123",
-        "123"
-    ],
-    "BATCH_DELAY": 150,
-    "UPDATE_DELAY": 50 
+    "SPREADSHEET_ID": "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ",
+    "SHEET_NAME": "test",  // ⬅️ ตัวนี้อาจถูกใช้โดย CountCase.js
+    "SHIFT_SHEET_NAME": "ShiftTime", // 🌟 เพิ่มตัวนี้สำหรับ ShiftReportSaver
+    "CHANNEL_IDS": [
+        "123",
+        "123",
+        "123"
+    ],
+    "BATCH_DELAY": 150,
+    "UPDATE_DELAY": 50 
 }
