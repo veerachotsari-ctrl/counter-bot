@@ -4,8 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
@@ -14,8 +13,6 @@
     "discord.js": "^14.24.2",
     "dotenv": "^17.2.3",
     "google-auth-library": "^10.5.0",
-    "googleapis": "^164.1.0",
-    "google-spreadsheet": "^4.1.1"  
-    /* ตรวจสอบว่ามี "google-spreadsheet" อยู่ในรายการ */
+    "googleapis": "^164.1.0"
   }
 }
