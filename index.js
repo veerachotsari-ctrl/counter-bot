@@ -11,6 +11,8 @@ const {
 // ⭐️ โหลดโมดูลที่แยกออกมา
 const { initializeWelcomeModule } = require('./welcome.js'); 
 const { initializeCountCase } = require('./CountCase.js'); 
+const { initializeDutyLogger } = require('./DutyLogger.js');
+
 
 // =========================================================
 // 🌐 CONFIG & INITIALIZATION
@@ -34,6 +36,7 @@ const client = new Client({
 // ⭐️ เรียกใช้โมดูลทั้งหมด โดยส่ง Channel ID ที่ต้องการไปด้วย
 initializeWelcomeModule(client);
 initializeCountCase(client, COMMAND_CHANNEL_ID); 
+initializeDutyLogger(client);
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
