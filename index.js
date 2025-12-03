@@ -1,39 +1,47 @@
-// index.js — Main Bot File
+// index.js (ไฟล์หลัก - เป็นตัวเชื่อมต่อเท่านั้น)
 
 require("dotenv").config();
+const fs = require("fs"); 
 const http = require("http");
-const { Client, GatewayIntentBits } = require("discord.js");
+const { 
+    Client, 
+    GatewayIntentBits 
+} = require("discord.js"); 
 
-// โหลดโมดูล
-const { initializeDutyLogger } = require("./DutyLogger");
-const { initializeWelcomeModule } = require("./welcome.js");
-const { initializeCountCase } = require("./CountCase.js");
+// ⭐️ โหลดโมดูลที่แยกออกมา
+const { initializeWelcomeModule } = require('./welcome.js'); 
+const { initializeCountCase } = require('./CountCase.js'); 
 
-const COMMAND_CHANNEL_ID = process.env.COMMAND_CHANNEL_ID;
+// =========================================================
+// 🌐 CONFIG & INITIALIZATION
+// =========================================================
 
-// Discord Client
+// ⚠️ กำหนด Channel ID สำหรับส่งปุ่มควบคุมที่นี่
+const COMMAND_CHANNEL_ID = '1433450340564340889'; 
+
+// Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,   
+        GatewayIntentBits.GuildPresences, 
+        GatewayIntentBits.GuildMembers, 
+    ],
 });
 
-// เมื่อบอทพร้อม
-client.once("ready", () => {
-    console.log(`🤖 Bot is online as ${client.user.tag}`);
+// ⭐️ เรียกใช้โมดูลทั้งหมด โดยส่ง Channel ID ที่ต้องการไปด้วย
+initializeWelcomeModule(client);
+initializeCountCase(client, COMMAND_CHANNEL_ID); 
 
-    initializeDutyLogger(client);
-    initializeWelcomeModule(client);
-    initializeCountCase(client, COMMAND_CHANNEL_ID);
-});
+// =========================================================
+// 🌐 KEEP-ALIVE SERVER & LOGIN
+// =========================================================
 
-// Keep-alive server (Render)
 http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("Bot is running.");
-}).listen(process.env.PORT || 3000);
+    res.end("✅ Discord Bot is alive and running!");
+}).listen(3000, () => console.log("🌐 Web server running on port 3000."));
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN || process.env.TOKEN);
