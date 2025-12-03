@@ -1,39 +1,40 @@
-// index.js (ไฟล์หลัก - เป็นตัวเชื่อมต่อเท่านั้น)
+// index.js (ไฟล์หลัก)
 
 require("dotenv").config();
-const fs = require("fs"); 
+const fs = require("fs");
 const http = require("http");
-const { 
-    Client, 
-    GatewayIntentBits 
-} = require("discord.js"); 
+const {
+    Client,
+    GatewayIntentBits
+} = require("discord.js");
 
 // ⭐️ โหลดโมดูลที่แยกออกมา
-const { initializeWelcomeModule } = require('./welcome.js'); 
-const { initializeCountCase } = require('./CountCase.js'); 
+const { initializeWelcomeModule } = require('./welcome.js');
+const { initializeCountCase } = require('./CountCase.js');
+// 🌟 เพิ่มโมดูลใหม่สำหรับบันทึกเวลาเข้าเวร
+const { initializeShiftReportSaver } = require('./ShiftReportSaver.js'); 
 
 // =========================================================
 // 🌐 CONFIG & INITIALIZATION
 // =========================================================
 
-// ⚠️ กำหนด Channel ID สำหรับส่งปุ่มควบคุมที่นี่
-const COMMAND_CHANNEL_ID = '1433450340564340889'; 
+const COMMAND_CHANNEL_ID = '1433450340564340889';
 
-// Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,   
-        GatewayIntentBits.GuildPresences, 
+        GatewayIntentBits.MessageContent, // สำคัญมากสำหรับการอ่านข้อความ
         GatewayIntentBits.GuildMembers, 
+        GatewayIntentBits.GuildPresences, 
     ],
 });
 
-// ⭐️ เรียกใช้โมดูลทั้งหมด โดยส่ง Channel ID ที่ต้องการไปด้วย
+// ⭐️ เรียกใช้โมดูลทั้งหมด
 initializeWelcomeModule(client);
 initializeCountCase(client, COMMAND_CHANNEL_ID); 
+// 🌟 เรียกใช้โมดูลใหม่ของคุณ
+initializeShiftReportSaver(client); 
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
