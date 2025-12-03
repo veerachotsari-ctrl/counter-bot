@@ -2,57 +2,68 @@
 require("dotenv").config();
 const { google } = require("googleapis");
 
-const DUTY_LOG_CHANNEL_ID = process.env.DUTY_LOG_CHANNEL_ID;
+// ⭐ ใช้ Channel ID ที่ให้ไว้
+const DUTY_LOG_CHANNEL_ID = "1445640443986710548";
 
 module.exports.initializeDutyLogger = function (client) {
 
     client.on("messageCreate", async (msg) => {
 
-        // ⭐️ ฟังเฉพาะห้องนี้เท่านั้น
+        // ⭐ ทำงานเฉพาะห้องนี้
         if (msg.channelId !== DUTY_LOG_CHANNEL_ID) return;
 
         if (!msg.embeds.length) return;
 
         const embed = msg.embeds[0];
 
+        // ⭐ เช็คว่าข้อความนี้เป็นรายงานเข้าเวร
         if (!embed.title?.includes("รายงานเข้าเวร")) return;
 
         try {
             const name = embed.fields.find(f => f.name === "ชื่อ")?.value || "-";
-            const start = embed.fields.find(f => f.name === "เวลาเข้าทำงาน")?.value;
-            const end = embed.fields.find(f => f.name === "เวลาเลิกงาน")?.value;
 
-            const startDate = new Date(start.replace("พุธ - ", "").trim());
-            const endDate = new Date(end.replace("พุธ - ", "").trim());
+            const startRaw = embed.fields.find(f => f.name === "เวลาเข้าทำงาน")?.value;
+            const endRaw   = embed.fields.find(f => f.name === "เวลาเลิกงาน")?.value;
 
-            const diffMs = endDate - startDate;
+            // "พุธ - 03/12/2025 16:18:05" → ลบ "พุธ - "
+            const start = new Date(startRaw.replace(/^\S+ - /, "").trim());
+            const end   = new Date(endRaw.replace(/^\S+ - /, "").trim());
+
+            // คำนวณชั่วโมง
+            const diffMs = end - start;
             const hours = diffMs / (1000 * 60 * 60);
 
-            const weekday = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
-            const dayName = weekday[startDate.getDay()];
+            // วันในสัปดาห์ภาษาไทย
+            const weekdays = ["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
+            const dayName = weekdays[start.getDay()];
 
+            // ส่งลงชีต
             await appendToSheet([name, dayName, hours]);
-            console.log("Duty logged:", name, dayName, hours);
+
+            console.log(`✔ ลงข้อมูล: ${name} | ${dayName} | ${hours.toFixed(2)} ชม.`);
 
         } catch (err) {
-            console.error("DutyLogger error:", err);
+            console.error("❌ DutyLogger error:", err);
         }
     });
 };
+
+
+// ====================== GOOGLE SHEET ======================
 
 async function appendToSheet(row) {
     const auth = new google.auth.JWT(
         process.env.CLIENT_EMAIL,
         null,
-        process.env_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+        process.env.PRIVATE_KEY.replace(/\\n/g, "\n"),
         ["https://www.googleapis.com/auth/spreadsheets"]
     );
 
     const sheets = google.sheets({ version: "v4", auth });
 
     await sheets.spreadsheets.values.append({
-        spreadsheetId: "YOUR_GOOGLE_SHEET_ID",
-        range: "เวลางาน!A1",
+        spreadsheetId: "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM",  // ⭐ ชีตที่ให้มา
+        range: "DutyLogger!A1",  // ⭐ ชื่อชีต DutyLogger
         valueInputOption: "USER_ENTERED",
         resource: { values: [row] }
     });
