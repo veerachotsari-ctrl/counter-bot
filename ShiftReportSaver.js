@@ -6,15 +6,18 @@ const appConfig = require('./config.json');
 // ⭐️ ตั้งค่าสำหรับ Google Service Account จาก Environment Variables
 const creds = {
     client_email: process.env.CLIENT_EMAIL,
+    // สำคัญ: ต้องแทนที่ \n ใน private key ด้วย newline จริง
     private_key: process.env.PRIVATE_KEY.replace(/\\n/g, '\n'), 
 };
 
 // ⭐️ ตั้งค่าสำหรับบอท 
+// ดึง Channel ID จาก Environment
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID; 
 
 // ใช้ค่าจาก config.json
 const SPREADSHEET_ID = appConfig.SPREADSHEET_ID; 
-const SHEET_TITLE = appConfig.SHEET_NAME; 
+// 🌟 เปลี่ยนมาใช้คีย์ใหม่สำหรับชื่อชีต
+const SHEET_TITLE = appConfig.SHIFT_SHEET_NAME; 
 
 // =========================================================
 // ⏱️ LOGIC: Time/Date & Parsing Functions
@@ -55,7 +58,7 @@ function secondsToTime(totalSeconds) {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-// ฟังก์ชันหลัก: คำนวณและแบ่งเวลาเข้าเวรที่คร่อมวัน
+// ฟังก์ชันหลัก: คำนวณและแบ่งเวลาเข้าเวรที่คร่อมวัน (Overnight Split Logic)
 function calculateDutyTimeSplits(entryTimeStr, exitTimeStr) {
     const entryTime = parseThaiDateTime(entryTimeStr);
     const exitTime = parseThaiDateTime(exitTimeStr);
@@ -97,6 +100,7 @@ function calculateDutyTimeSplits(entryTimeStr, exitTimeStr) {
 }
 
 function parseReportMessage(content) {
+    // ⭐️ ใช้ Regex ดึงข้อมูล: 
     const nameMatch = content.match(/ชื่อ\s*[\r\n]+(.*?)(?:\n|$)/i);
     const entryTimeMatch = content.match(/เวลาเข้างาน\s*[\r\n]+(.*?)(?:\n|$)/i);
     const exitTimeMatch = content.match(/เวลาออกงาน\s*[\r\n]+(.*?)(?:\n|$)/i);
@@ -120,7 +124,8 @@ async function updateSheet(name, day, durationSeconds) {
         const doc = new GoogleSpreadsheet(SPREADSHEET_ID);
         await doc.useServiceAccountAuth(creds); 
         
-        const sheet = doc.sheetsByTitle[SHEET_TITLE];
+        // ใช้ SHEET_TITLE ที่ดึงมาจาก SHIFT_SHEET_NAME
+        const sheet = doc.sheetsByTitle[SHEET_TITLE]; 
         if (!sheet) throw new Error(`Sheet with title "${SHEET_TITLE}" not found.`);
 
         // 1. ดึงแถวข้อมูลทั้งหมด
@@ -131,12 +136,12 @@ async function updateSheet(name, day, durationSeconds) {
         let targetRow = rows.find(r => r['ชื่อ'] === name); 
 
         if (!targetRow) {
-            // ถ้าไม่พบ ให้สร้างแถวใหม่
+            // ถ้าไม่พบ ให้สร้างแถวใหม่ (สมมติว่าคอลัมน์แรกในชีตชื่อ 'ชื่อ')
             targetRow = await sheet.addRow({ 'ชื่อ': name });
         }
         
         // 3. คำนวณและอัปเดตเวลา
-        // ดึงค่าปัจจุบันในคอลัมน์ของวันนั้น 
+        // ดึงค่าปัจจุบันในคอลัมน์ของวันนั้น (เช่น 'จันทร์', 'อังคาร')
         const currentCellValue = targetRow[day] || '00:00:00'; 
         
         // แปลงเวลาปัจจุบัน + เวลาใหม่ เป็นวินาที
