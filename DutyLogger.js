@@ -3,7 +3,7 @@ require("dotenv").config();
 const { google } = require("googleapis");
 
 const DUTY_LOG_CHANNEL_ID = "1445640443986710548";
-const SPREADSHEET_ID = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
+const SPREADSHEET_ID = "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ";
 const SHEET_NAME = "DutyLogger";
 const NAMES_RANGE = `${SHEET_NAME}!B3:B`; 
 
