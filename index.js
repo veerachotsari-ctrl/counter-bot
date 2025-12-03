@@ -18,7 +18,8 @@ const { initializeShiftReportSaver } = require('./ShiftReportSaver.js');
 // 🌐 CONFIG & INITIALIZATION
 // =========================================================
 
-const COMMAND_CHANNEL_ID = '1433450340564340889';
+// ใช้ค่าจาก Environment Variables
+const COMMAND_CHANNEL_ID = process.env.COMMAND_CHANNEL_ID || '1433450340564340889';
 
 const client = new Client({
     intents: [
@@ -43,6 +44,6 @@ initializeShiftReportSaver(client);
 http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("✅ Discord Bot is alive and running!");
-}).listen(3000, () => console.log("🌐 Web server running on port 3000."));
+}).listen(process.env.PORT || 3000, () => console.log("🌐 Web server running."));
 
 client.login(process.env.DISCORD_TOKEN || process.env.TOKEN);
