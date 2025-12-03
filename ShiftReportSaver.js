@@ -6,23 +6,15 @@ const appConfig = require('./config.json');
 // ⭐️ ตั้งค่าสำหรับ Google Service Account จาก Environment Variables
 const creds = {
     client_email: process.env.CLIENT_EMAIL,
-    // สำคัญ: ต้องแทนที่ \n ใน private key ด้วย newline จริง เพื่อให้ Node.js อ่าน Private Key ได้ถูกต้อง
     private_key: process.env.PRIVATE_KEY.replace(/\\n/g, '\n'), 
 };
 
 // ⭐️ ตั้งค่าสำหรับบอท 
-// ดึง Channel ID จาก Environment ที่คุณต้องเพิ่ม
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID; 
 
 // ใช้ค่าจาก config.json
 const SPREADSHEET_ID = appConfig.SPREADSHEET_ID; 
 const SHEET_TITLE = appConfig.SHEET_NAME; 
-
-// แมปชื่อวันไทยกับดัชนีคอลัมน์ใน Sheet (คอลัมน์ A เป็นชื่อ, คอลัมน์ B คือ 1)
-const DAY_COLUMNS = {
-    'จันทร์': 1, 'อังคาร': 2, 'พุธ': 3, 'พฤหัสบดี': 4,
-    'ศุกร์': 5, 'เสาร์': 6, 'อาทิตย์': 7
-};
 
 // =========================================================
 // ⏱️ LOGIC: Time/Date & Parsing Functions
@@ -105,7 +97,6 @@ function calculateDutyTimeSplits(entryTimeStr, exitTimeStr) {
 }
 
 function parseReportMessage(content) {
-    // ⭐️ ใช้ Regex ดึงข้อมูล: 
     const nameMatch = content.match(/ชื่อ\s*[\r\n]+(.*?)(?:\n|$)/i);
     const entryTimeMatch = content.match(/เวลาเข้างาน\s*[\r\n]+(.*?)(?:\n|$)/i);
     const exitTimeMatch = content.match(/เวลาออกงาน\s*[\r\n]+(.*?)(?:\n|$)/i);
@@ -132,39 +123,31 @@ async function updateSheet(name, day, durationSeconds) {
         const sheet = doc.sheetsByTitle[SHEET_TITLE];
         if (!sheet) throw new Error(`Sheet with title "${SHEET_TITLE}" not found.`);
 
-        // 1. ดึงข้อมูลทั้งหมดใน Sheet
+        // 1. ดึงแถวข้อมูลทั้งหมด
+        await sheet.loadHeaderRow();
         const rows = await sheet.getRows();
         
         // 2. ค้นหาแถวของผู้เล่น
-        let targetRow = rows.find(r => r.get('ชื่อ') === name); // ใช้ชื่อคอลัมน์เป็น 'ชื่อ'
-        let rowIndex;
+        let targetRow = rows.find(r => r['ชื่อ'] === name); 
 
         if (!targetRow) {
-            // ถ้าไม่พบ ให้สร้างแถวใหม่ (สมมติว่าคอลัมน์ A ใน Sheet มีหัวข้อว่า 'ชื่อ')
+            // ถ้าไม่พบ ให้สร้างแถวใหม่
             targetRow = await sheet.addRow({ 'ชื่อ': name });
-            rowIndex = targetRow.rowNumber;
-        } else {
-            rowIndex = targetRow.rowNumber;
         }
         
-        // 3. กำหนดเซลล์เป้าหมาย (ใช้การอัปเดตแบบ Range เพื่อความแม่นยำ)
-        const colIndex = DAY_COLUMNS[day];
-        if (!colIndex) return;
-
-        // คำนวณ Range A1 notation (เช่น D3)
-        const cellRange = `${String.fromCharCode(65 + colIndex)}${rowIndex}`;
-        await sheet.loadCells(cellRange); 
-        const cell = sheet.getCell(rowIndex - 1, colIndex); // Index เริ่มจาก 0
-
-        // 4. คำนวณและอัปเดตเวลา
-        const currentCellValue = cell.value || '00:00:00'; 
+        // 3. คำนวณและอัปเดตเวลา
+        // ดึงค่าปัจจุบันในคอลัมน์ของวันนั้น 
+        const currentCellValue = targetRow[day] || '00:00:00'; 
+        
+        // แปลงเวลาปัจจุบัน + เวลาใหม่ เป็นวินาที
         const currentSeconds = timeToSeconds(currentCellValue);
         const newTotalSeconds = currentSeconds + durationSeconds;
         
-        cell.value = secondsToTime(newTotalSeconds);
-        await cell.save(); 
+        // อัปเดตค่าในแถวด้วยเวลาใหม่ที่รวมแล้ว
+        targetRow[day] = secondsToTime(newTotalSeconds); 
+        await targetRow.save(); 
 
-        console.log(`[SHEET] Updated ${name}'s total time for ${day} to ${cell.value}`);
+        console.log(`[SHEET] Updated ${name}'s total time for ${day} to ${targetRow[day]}`);
 
     } catch (error) {
         console.error("Error updating Google Sheet:", error.message);
