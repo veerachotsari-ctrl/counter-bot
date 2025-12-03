@@ -1,4 +1,4 @@
-// DutyLogger.js (แก้ไขการ Parse วันที่)
+// DutyLogger.js (แก้ไขการ Parse วันที่ด้วย RegEx)
 require("dotenv").config();
 const { google } = require("googleapis");
 
@@ -9,22 +9,31 @@ const NAMES_RANGE = `${SHEET_NAME}!B3:B`;
 
 /**
  * ฟังก์ชันช่วยแปลงสตริงวันที่จาก Embed (DD/MM/YYYY) ให้เป็น Date Object ที่ถูกต้อง
- * ตัวอย่าง: "พุธ - 03/12/2025 17:18:11" -> Date Object
+ * ใช้ Regular Expression เพื่อความแม่นยำสูง
  */
 function parseDateFromEmbed(rawDateString) {
-    // 1. ลบชื่อวัน: "พุธ - 03/12/2025 17:18:11" -> "03/12/2025 17:18:11"
-    const cleaned = rawDateString.replace(/^\S+ - /, "").trim();
+    // RegEx: ดึง (วัน)/(เดือน)/(ปี) เว้นวรรค (HH:mm:ss) จากสตริงที่สะอาดแล้ว
+    // เช่น: "พุธ - 03/12/2025 17:20:04"
+    const regex = /(\d{2})\/(\d{2})\/(\d{4})\s(\d{2}:\d{2}:\d{2})/;
     
-    // 2. แยกวันที่และเวลา
-    const [datePart, timePart] = cleaned.split(' '); // ["03/12/2025", "17:18:11"]
+    // 1. ทำความสะอาดสตริงโดยลบชื่อวันนำหน้า
+    const cleaned = rawDateString.replace(/^\S+\s-\s/, "").trim(); // ลบ "พุธ - "
     
-    // 3. แยกส่วนวันที่ (สมมติว่าเป็น DD/MM/YYYY)
-    const [day, month, year] = datePart.split('/'); // ["03", "12", "2025"]
+    // 2. ใช้ RegEx จับคู่
+    const match = cleaned.match(regex);
     
-    // 4. สร้างรูปแบบ ISO 8601: YYYY-MM-DDTHH:mm:ss ซึ่งมีความแม่นยำสูง
-    const isoString = `${year}-${month}-${day}T${timePart}`;
+    if (!match) {
+        throw new Error(`Date string format mismatch: ${rawDateString}`);
+    }
     
-    // 5. สร้าง Date Object จาก ISO String
+    // match[1]=วัน (DD), match[2]=เดือน (MM), match[3]=ปี (YYYY), match[4]=เวลา (HH:mm:ss)
+    const [, day, month, year, timePart] = match;
+    
+    // 3. สร้างรูปแบบ ISO 8601 YYYY-MM-DDTHH:mm:ss เพื่อการ Parse ที่เชื่อถือได้
+    // เราใช้ช่องว่างแทน 'T' เพื่อให้ JS Date ตีความเป็น Local Time: YYYY-MM-DD HH:mm:ss
+    const isoString = `${year}-${month}-${day} ${timePart}`;
+    
+    // 4. สร้าง Date Object
     return new Date(isoString);
 }
 
@@ -54,7 +63,7 @@ module.exports.initializeDutyLogger = function (client) {
             const startRaw = startField.value;
             const endRaw   = endField.value;
             
-            // ⭐⭐⭐ ใช้ฟังก์ชันใหม่ในการแปลงเวลา ⭐⭐⭐
+            // ⭐ ใช้ฟังก์ชันใหม่ในการแปลงเวลา
             const start = parseDateFromEmbed(startRaw);
             const end   = parseDateFromEmbed(endRaw);
             
