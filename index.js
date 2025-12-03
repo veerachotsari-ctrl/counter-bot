@@ -1,56 +1,39 @@
-// index.js (ไฟล์หลัก - เป็นตัวเชื่อมต่อเท่านั้น)
+// index.js — Main Bot File
 
 require("dotenv").config();
-const fs = require("fs"); 
 const http = require("http");
-const { 
-    Client, 
-    GatewayIntentBits 
-} = require("discord.js"); 
+const { Client, GatewayIntentBits } = require("discord.js");
 
-// ⭐️ โหลดโมดูลที่แยกออกมา
-const { initializeWelcomeModule } = require('./welcome.js'); 
-const { initializeCountCase } = require('./CountCase.js'); 
-const { initializeDutyLogger } = require('./DutyLogger.js');   // ✅ เพิ่ม DutyLogger
+// โหลดโมดูล
+const { initializeDutyLogger } = require("./DutyLogger");
+const { initializeWelcomeModule } = require("./welcome.js");
+const { initializeCountCase } = require("./CountCase.js");
 
-// =========================================================
-// 🌐 CONFIG & INITIALIZATION
-// =========================================================
+const COMMAND_CHANNEL_ID = process.env.COMMAND_CHANNEL_ID;
 
-// ⚠️ กำหนด Channel ID สำหรับส่งปุ่มควบคุมที่นี่
-const COMMAND_CHANNEL_ID = '1433450340564340889'; 
-
-// Discord client
+// Discord Client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,   
-        GatewayIntentBits.GuildPresences, 
-    ],
+        GatewayIntentBits.MessageContent
+    ]
 });
 
-// =========================================================
-// ⭐️ REGISTER MODULES
-// =========================================================
+// เมื่อบอทพร้อม
+client.once("ready", () => {
+    console.log(`🤖 Bot is online as ${client.user.tag}`);
 
-// Welcome System
-initializeWelcomeModule(client);
+    initializeDutyLogger(client);
+    initializeWelcomeModule(client);
+    initializeCountCase(client, COMMAND_CHANNEL_ID);
+});
 
-// Count Case System
-initializeCountCase(client, COMMAND_CHANNEL_ID); 
-
-// Duty Logger System (อ่าน embed, บันทึกเวลาเข้าเวร → Google Sheets)
-initializeDutyLogger(client);  // ✅ เพิ่มตรงนี้
-
-// =========================================================
-// 🌐 KEEP-ALIVE SERVER & LOGIN
-// =========================================================
-
+// Keep-alive server (Render)
 http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("✅ Discord Bot is alive and running!");
-}).listen(3000, () => console.log("🌐 Web server running on port 3000."));
+    res.end("Bot is running.");
+}).listen(process.env.PORT || 3000);
 
-client.login(process.env.DISCORD_TOKEN || process.env.TOKEN);
+client.login(process.env.DISCORD_TOKEN);
