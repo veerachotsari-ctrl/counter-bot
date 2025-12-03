@@ -16,6 +16,5 @@
     "google-auth-library": "^10.5.0",
     "googleapis": "^164.1.0",
     "google-spreadsheet": "^4.1.1"  
-    // ⭐️ ลบคอมเมนต์ทั้งหมดออก
   }
 }
