@@ -1,7 +1,7 @@
 // ShiftReportSaver.js
 
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const fs = require('fs'); // ⬅️ เพิ่ม fs เข้ามา
+const fs = require('fs'); // ⬅️ ต้องใช้ fs ในการอ่านไฟล์
 
 // ⭐️ โหลดและแยกวิเคราะห์ (Parse) ไฟล์ config.json ด้วย fs.readFileSync
 let appConfig;
@@ -11,10 +11,8 @@ try {
     console.log("✅ Config loaded successfully.");
 } catch (error) {
     console.error("❌ ERROR loading or parsing config.json:", error.message);
-    // หากเกิดข้อผิดพลาดในการโหลดไฟล์ config ให้กำหนดค่าเริ่มต้นหรือหยุดการทำงาน
-    // (เราจะใช้ค่าจาก Environment Variables เป็นหลักอยู่แล้ว)
+    // กำหนดค่าสำรองในกรณีที่โหลดไฟล์ไม่ได้
     appConfig = { SPREADSHEET_ID: "", SHIFT_SHEET_NAME: "DefaultSheet", SHEET_NAME: "test" }; 
-    // ถ้าคุณมั่นใจว่า SPREADSHEET_ID ถูกกำหนดไว้ใน Environment Variables คุณอาจจะดึงจากตรงนั้นได้ถ้ามันไม่ใช่ค่า Sensitive
 }
 
 // ⭐️ ตั้งค่าสำหรับ Google Service Account จาก Environment Variables
@@ -26,13 +24,12 @@ const creds = {
 // ⭐️ ตั้งค่าสำหรับบอท 
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID; 
 
-// ใช้ค่าจาก config.json (ที่โหลดผ่าน fs)
+// ใช้ค่าจาก config.json 
 const SPREADSHEET_ID = appConfig.SPREADSHEET_ID; 
-const SHEET_TITLE = appConfig.SHIFT_SHEET_NAME; // ใช้งาน "ShiftTime"
+const SHEET_TITLE = appConfig.SHIFT_SHEET_NAME; // 🌟 ใช้ SHIFT_SHEET_NAME
 
 // =========================================================
 // ⏱️ LOGIC: Time/Date & Parsing Functions
-// ... (ส่วนนี้คงเดิม) ...
 // =========================================================
 
 function parseThaiDateTime(dateTimeString) {
@@ -128,11 +125,12 @@ function parseReportMessage(content) {
 
 // =========================================================
 // 💾 LOGIC: Google Sheets Integration
-// ... (ส่วนนี้คงเดิม) ...
 // =========================================================
 
 async function updateSheet(name, day, durationSeconds) {
     try {
+        if (!SPREADSHEET_ID) throw new Error("SPREADSHEET_ID is missing.");
+
         const doc = new GoogleSpreadsheet(SPREADSHEET_ID);
         await doc.useServiceAccountAuth(creds); 
         
@@ -168,12 +166,15 @@ async function updateSheet(name, day, durationSeconds) {
 
 // =========================================================
 // ⭐️ MAIN MODULE INITIALIZER
-// ... (ส่วนนี้คงเดิม) ...
 // =========================================================
 
 function initializeShiftReportSaver(client) {
     if (!REPORT_CHANNEL_ID) {
         console.error("❌ ERROR: REPORT_CHANNEL_ID is not set in environment variables!");
+        return;
+    }
+    if (!appConfig.SHIFT_SHEET_NAME) {
+        console.error("❌ ERROR: SHIFT_SHEET_NAME is not configured in config.json!");
         return;
     }
     
@@ -194,7 +195,7 @@ function initializeShiftReportSaver(client) {
         }
     });
 
-    console.log("✅ Shift Report Saver module initialized. Listening to channel:", REPORT_CHANNEL_ID);
+    console.log(`✅ Shift Report Saver module initialized. Listening to channel: ${REPORT_CHANNEL_ID} and using sheet: ${SHEET_TITLE}`);
 }
 
 module.exports = { initializeShiftReportSaver };
