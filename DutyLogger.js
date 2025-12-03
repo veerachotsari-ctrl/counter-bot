@@ -1,4 +1,4 @@
-// DutyLogger.js (แก้ไขชื่อ Field)
+// DutyLogger.js (แก้ไขการ Parse วันที่)
 require("dotenv").config();
 const { google } = require("googleapis");
 
@@ -6,6 +6,28 @@ const DUTY_LOG_CHANNEL_ID = "1445640443986710548";
 const SPREADSHEET_ID = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
 const SHEET_NAME = "DutyLogger";
 const NAMES_RANGE = `${SHEET_NAME}!B3:B`; 
+
+/**
+ * ฟังก์ชันช่วยแปลงสตริงวันที่จาก Embed (DD/MM/YYYY) ให้เป็น Date Object ที่ถูกต้อง
+ * ตัวอย่าง: "พุธ - 03/12/2025 17:18:11" -> Date Object
+ */
+function parseDateFromEmbed(rawDateString) {
+    // 1. ลบชื่อวัน: "พุธ - 03/12/2025 17:18:11" -> "03/12/2025 17:18:11"
+    const cleaned = rawDateString.replace(/^\S+ - /, "").trim();
+    
+    // 2. แยกวันที่และเวลา
+    const [datePart, timePart] = cleaned.split(' '); // ["03/12/2025", "17:18:11"]
+    
+    // 3. แยกส่วนวันที่ (สมมติว่าเป็น DD/MM/YYYY)
+    const [day, month, year] = datePart.split('/'); // ["03", "12", "2025"]
+    
+    // 4. สร้างรูปแบบ ISO 8601: YYYY-MM-DDTHH:mm:ss ซึ่งมีความแม่นยำสูง
+    const isoString = `${year}-${month}-${day}T${timePart}`;
+    
+    // 5. สร้าง Date Object จาก ISO String
+    return new Date(isoString);
+}
+
 
 module.exports.initializeDutyLogger = function (client) {
 
@@ -21,7 +43,6 @@ module.exports.initializeDutyLogger = function (client) {
         try {
             const name = embed.fields.find(f => f.name === "ชื่อ")?.value || "-";
 
-            // ⭐⭐⭐ แก้ไขชื่อ Field ตรงนี้ ⭐⭐⭐
             const startField = embed.fields.find(f => f.name === "เวลาเข้างาน");
             const endField   = embed.fields.find(f => f.name === "เวลาออกงาน");
 
@@ -33,10 +54,11 @@ module.exports.initializeDutyLogger = function (client) {
             const startRaw = startField.value;
             const endRaw   = endField.value;
             
-            // "พุธ - 03/12/2025 17:14:01" → ลบ "พุธ - "
-            const start = new Date(startRaw.replace(/^\S+ - /, "").trim());
-            const end   = new Date(endRaw.replace(/^\S+ - /, "").trim());
+            // ⭐⭐⭐ ใช้ฟังก์ชันใหม่ในการแปลงเวลา ⭐⭐⭐
+            const start = parseDateFromEmbed(startRaw);
+            const end   = parseDateFromEmbed(endRaw);
             
+            // ตรวจสอบความถูกต้องอีกครั้งหลังแปลง
             if (isNaN(start.getTime()) || isNaN(end.getTime())) {
                 console.error(`❌ ไม่สามารถแปลงเวลาเป็น Date ได้: Start=${startRaw}, End=${endRaw}`);
                 return;
@@ -58,7 +80,7 @@ module.exports.initializeDutyLogger = function (client) {
     });
 };
 
-// ====================== GOOGLE SHEET LOGIC ======================
+// ====================== GOOGLE SHEET LOGIC (ไม่เปลี่ยนแปลง) ======================
 
 function getDayColumn(dayName) {
     switch (dayName) {
