@@ -1,12 +1,21 @@
 {
-    "SPREADSHEET_ID": "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ",
-    "SHEET_NAME": "test",  
-    "SHIFT_SHEET_NAME": "ShiftTime", // 🌟 ใช้ชื่อชีตนี้ในการบันทึกข้อมูลเข้าเวร
-    "CHANNEL_IDS": [
-        "123",
-        "123",
-        "123"
-    ],
-    "BATCH_DELAY": 150,
-    "UPDATE_DELAY": 50 
+  "name": "counterbotdc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.24.2",
+    "dotenv": "^17.2.3",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^164.1.0",
+    "google-spreadsheet": "^4.1.1"  
+    // ⭐️ ลบคอมเมนต์ทั้งหมดออก
+  }
 }
