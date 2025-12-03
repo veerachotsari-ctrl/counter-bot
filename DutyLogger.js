@@ -1,10 +1,10 @@
-// DutyLogger.js (ฉบับแก้ไข Private Key ล่าสุด)
+// DutyLogger.js (ฉบับแก้ไขที่ถูกต้อง: เพิ่ม .replace() กลับเข้าไป)
 require("dotenv").config();
 const { google } = require("googleapis");
+const { JWT } = require("google-auth-library"); // เพิ่มการเรียกใช้ JWT ถ้าจำเป็น
 
 const DUTY_LOG_CHANNEL_ID = "1445640443986710548";
-// ตรวจสอบ ID: 1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ หรือ 1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM
-const SPREADSHEET_ID = "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ"; 
+const SPREADSHEET_ID = "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ"; 
 const SHEET_NAME = "DutyLogger";
 const NAMES_RANGE = `${SHEET_NAME}!B3:B`; 
 
@@ -13,27 +13,20 @@ const NAMES_RANGE = `${SHEET_NAME}!B3:B`; 
  * ใช้ Regular Expression เพื่อความแม่นยำสูง
  */
 function parseDateFromEmbed(rawDateString) {
-    // RegEx: ดึง (วัน)/(เดือน)/(ปี) เว้นวรรค (HH:mm:ss) จากสตริงที่สะอาดแล้ว
-    // เช่น: "พุธ - 03/12/2025 17:20:04"
     const regex = /(\d{2})\/(\d{2})\/(\d{4})\s(\d{2}:\d{2}:\d{2})/;
     
-    // 1. ทำความสะอาดสตริงโดยลบชื่อวันนำหน้า
-    const cleaned = rawDateString.replace(/^\S+\s-\s/, "").trim(); // ลบ "พุธ - "
+    const cleaned = rawDateString.replace(/^\S+\s-\s/, "").trim();
     
-    // 2. ใช้ RegEx จับคู่
     const match = cleaned.match(regex);
     
     if (!match) {
         throw new Error(`Date string format mismatch: ${rawDateString}`);
     }
     
-    // match[1]=วัน (DD), match[2]=เดือน (MM), match[3]=ปี (YYYY), match[4]=เวลา (HH:mm:ss)
     const [, day, month, year, timePart] = match;
     
-    // 3. สร้างรูปแบบ ISO 8601 YYYY-MM-DD HH:mm:ss
     const isoString = `${year}-${month}-${day} ${timePart}`;
     
-    // 4. สร้าง Date Object
     return new Date(isoString);
 }
 
@@ -105,15 +98,15 @@ function getDayColumn(dayName) {
 }
 
 async function logDutyHours(name, dayName, hours) {
-    // ⭐⭐⭐ การแก้ไขอยู่ตรงนี้: ใช้ PRIVATE_KEY โดยตรง ⭐⭐⭐
-    const auth = new google.auth.JWT(
-        process.env.CLIENT_EMAIL,
-        null,
-        process.env.PRIVATE_KEY, 
-        ["https://www.googleapis.com/auth/spreadsheets"]
-    );
+    // ⭐⭐⭐ ต้องใช้ .replace() เพื่อจัดการกับ \\n ที่มาจาก Render ⭐⭐⭐
+    const auth = new google.auth.JWT({
+        email: process.env.CLIENT_EMAIL,
+        key: process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n') : null,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+    
     const sheets = google.sheets({ version: "v4", auth });
-
+    
     const targetColumn = getDayColumn(dayName);
     if (!targetColumn) {
         throw new Error(`Invalid day name: ${dayName}`);
@@ -128,6 +121,8 @@ async function logDutyHours(name, dayName, hours) {
             range: NAMES_RANGE,
         });
     } catch (e) {
+        // หากเกิดข้อผิดพลาดในการเรียก API (เช่น 401), ให้แสดง error และใช้ค่าเริ่มต้น
+        console.error("Error reading names from sheet. Check authentication and sharing permissions.", e.message);
         namesResponse = { data: { values: [] } };
     }
 
