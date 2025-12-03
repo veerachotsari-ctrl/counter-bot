@@ -11,7 +11,7 @@ const {
 // ⭐️ โหลดโมดูลที่แยกออกมา
 const { initializeWelcomeModule } = require('./welcome.js');
 const { initializeCountCase } = require('./CountCase.js');
-// 🌟 เพิ่มโมดูลใหม่สำหรับบันทึกเวลาเข้าเวร
+// 🌟 โมดูลใหม่
 const { initializeShiftReportSaver } = require('./ShiftReportSaver.js'); 
 
 // =========================================================
@@ -25,7 +25,7 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, // สำคัญมากสำหรับการอ่านข้อความ
+        GatewayIntentBits.MessageContent, 
         GatewayIntentBits.GuildMembers, 
         GatewayIntentBits.GuildPresences, 
     ],
