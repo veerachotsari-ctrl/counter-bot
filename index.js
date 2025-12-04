@@ -1,39 +1,66 @@
 // index.js (ไฟล์หลัก - เป็นตัวเชื่อมต่อเท่านั้น)
 
 require("dotenv").config();
-const fs = require("fs"); 
+const fs = require("fs");
 const http = require("http");
-const { 
-    Client, 
-    GatewayIntentBits 
-} = require("discord.js"); 
+const {
+    Client,
+    GatewayIntentBits
+} = require("discord.js");
 
 // ⭐️ โหลดโมดูลที่แยกออกมา
-const { initializeWelcomeModule } = require('./welcome.js'); 
-const { initializeCountCase } = require('./CountCase.js'); 
+const { initializeWelcomeModule } = require('./welcome.js');
+const { initializeCountCase } = require('./CountCase.js');
+
+// ⭐️ โหลดระบบบันทึกเวลาออกเวร
+const { saveLog } = require("./logtime.js");
 
 // =========================================================
 // 🌐 CONFIG & INITIALIZATION
 // =========================================================
 
-// ⚠️ กำหนด Channel ID สำหรับส่งปุ่มควบคุมที่นี่
 const COMMAND_CHANNEL_ID = '1433450340564340889'; 
 
-// Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,   
-        GatewayIntentBits.GuildPresences, 
-        GatewayIntentBits.GuildMembers, 
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences,
     ],
 });
 
-// ⭐️ เรียกใช้โมดูลทั้งหมด โดยส่ง Channel ID ที่ต้องการไปด้วย
+// ⭐️ เรียกใช้งานโมดูลเดิมทั้งหมด
 initializeWelcomeModule(client);
-initializeCountCase(client, COMMAND_CHANNEL_ID); 
+initializeCountCase(client, COMMAND_CHANNEL_ID);
+
+// =========================================================
+// ✨ เพิ่มระบบคำสั่ง /ออกเวร
+// =========================================================
+
+client.on("interactionCreate", async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    if (interaction.commandName === "ออกเวร") {
+
+        const name = interaction.options.getString("ชื่อ");
+        const time = interaction.options.getString("เวลา");
+
+        await interaction.reply({
+            content: `กำลังบันทึกข้อมูล...`,
+            ephemeral: true
+        });
+
+        const ok = await saveLog(name, time);
+
+        if (ok) {
+            await interaction.editReply(`✔ บันทึกแล้ว\n**ชื่อ:** ${name}\n**เวลา:** ${time}`);
+        } else {
+            await interaction.editReply("❌ บันทึกไม่สำเร็จ (Google Sheets ไม่ตอบสนอง)");
+        }
+    }
+});
 
 // =========================================================
 // 🌐 KEEP-ALIVE SERVER & LOGIN
