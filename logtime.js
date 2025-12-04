@@ -1,9 +1,9 @@
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
 
-// ===============================
-// DEBUG
-// ===============================
+// ========================================================================
+// 1) DEBUG — เช็คว่า ENV ของ GOOGLE SERVICE ACCOUNT ถูกต้องไหม
+// ========================================================================
 console.log("🔍 DEBUG CHECK");
 console.log("CLIENT_EMAIL:", process.env.CLIENT_EMAIL || "(missing)");
 console.log(
@@ -15,9 +15,9 @@ console.log(
     process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.substring(0, 30) : "(missing)"
 );
 
-// ===============================
-// Google Sheets Client
-// ===============================
+// ========================================================================
+// 2) Google Sheets Client
+// ========================================================================
 function getSheetsClient() {
     const credentials = {
         client_email: process.env.CLIENT_EMAIL,
@@ -38,11 +38,11 @@ function getSheetsClient() {
     });
 }
 
-// ===============================
-// Save to Google Sheet
-// ===============================
+// ========================================================================
+// 3) Save Log to Google Sheets (B = name, C = date, D = time)
+// ========================================================================
 async function saveLog(name, date, time) {
-    console.log(`📝 saveLog() → ${name}, ${date}, ${time}`);
+    console.log(`📝 saveLog() → NAME:${name} | DATE:${date} | TIME:${time}`);
 
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
@@ -63,13 +63,12 @@ async function saveLog(name, date, time) {
     try {
         const res = await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: `${sheetName}!B2`, // → บันทึก B-C-D
+            range: `${sheetName}!B2`, // บันทึกลง B–C–D
             valueInputOption: "USER_ENTERED",
             resource: { values: [[name, date, time]] },
         });
 
-        console.log("📌 Google Sheets Append Result:", JSON.stringify(res.data));
-        console.log("✔ Saved to Google Sheets!");
+        console.log("📌 Append Result:", JSON.stringify(res.data));
         return true;
     } catch (err) {
         console.log("❌ Google Sheets ERROR:", err);
@@ -77,9 +76,9 @@ async function saveLog(name, date, time) {
     }
 }
 
-// ===============================
-// Discord Listener
-// ===============================
+// ========================================================================
+// 4) Discord Listener — ดึง embed + ดึงข้อความแล้วแปลงเป็น string
+// ========================================================================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
     console.log("[LogTime] Listener attached to channel:", LOG_CHANNEL);
@@ -88,51 +87,82 @@ function initializeLogListener(client) {
         if (message.channel.id !== LOG_CHANNEL) return;
         if (message.author.bot) return;
 
-        // ===============================
-        // อ่านข้อความจาก embed
-        // ===============================
+        console.log("\n===================================================");
+        console.log("📥 NEW LOG MESSAGE RECEIVED");
+        console.log("===================================================");
+
+        // --------------------------------------------------------
+        // 1) รวมข้อความจาก discord embed / message content
+        // --------------------------------------------------------
         let text = message.content || "";
 
         if (message.embeds.length > 0) {
-            const embed = message.embeds[0];
+            console.log("🟦 Processing EMBED");
 
-            text =
-                (embed.title || "") + "\n" +
-                (embed.description || "") + "\n" +
-                embed.fields
-                    .map(f => `${f.name}\n${f.value}`)
-                    .join("\n");
+            for (const embed of message.embeds) {
+                if (embed.title) text += embed.title + "\n";
+                if (embed.description) text += embed.description + "\n";
+
+                if (embed.fields) {
+                    for (const f of embed.fields) {
+                        text += `${f.name}\n${f.value}\n`;
+                    }
+                }
+            }
         }
 
-        console.log("📥 Parsed Text:\n" + text);
+        console.log("📜 RAW PARSED TEXT:\n" + text);
 
-        // ===============================
-        // Extract: ชื่อ
-        // ===============================
+        // --------------------------------------------------------
+        // 2) Extract Name
+        // --------------------------------------------------------
         const nameMatch = text.match(/ชื่อ\s*\n(.+)/);
+        if (!nameMatch) {
+            console.log("❌ No NAME found");
+            return;
+        }
+        const name = nameMatch[1].trim();
+        console.log("🟩 NAME:", name);
 
-        // ===============================
-        // Extract: เวลาออกงาน
-        // ===============================
-        const outMatch = text.match(/เวลาออกงาน\s*\n\s*(.+)/);
-
-        if (!nameMatch || !outMatch) {
-            console.log("⛔ Pattern not matched. Log format incorrect.");
+        // --------------------------------------------------------
+        // 3) Extract "เวลาออกงาน"
+        // --------------------------------------------------------
+        const outMatch = text.match(/เวลาออกงาน\s*\n(.+)/);
+        if (!outMatch) {
+            console.log("❌ No OUT TIME found");
             return;
         }
 
-        const name = nameMatch[1].trim();
-
-        // เช่น: พฤหัสบดี - 04/12/2025 23:48:25
         let rawOut = outMatch[1].trim();
-        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim(); // ตัดชื่อวันไทย
+        console.log("🟧 RAW OUT:", rawOut);
+
+        // Example rawOut:
+        // พฤหัสบดี - 04/12/2025 23:37:18
+        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim(); // remove day
+
+        console.log("🟦 CLEAN OUT:", rawOut);
 
         const [date, time] = rawOut.split(" ");
 
-        console.log("📌 Final Parsed →", name, date, time);
+        if (!date || !time) {
+            console.log("❌ Cannot split date/time");
+            return;
+        }
 
+        console.log("🟩 DATE:", date);
+        console.log("🟩 TIME:", time);
+
+        // --------------------------------------------------------
+        // 4) Save to Sheets
+        // --------------------------------------------------------
         await saveLog(name, date, time);
+
+        console.log("✔ FINISHED SAVING TO GOOGLE SHEETS");
+        console.log("===================================================");
     });
 }
 
+// ========================================================================
+// EXPORT MODULE
+// ========================================================================
 module.exports = { saveLog, initializeLogListener };
