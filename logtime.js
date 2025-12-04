@@ -17,7 +17,7 @@ function getSheetsClient() {
 // บันทึกชื่อ + เวลาออกเวร ลงชีต logtime
 // ===============================
 async function saveLog(name, time) {
-    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM"; // ชีตที่ให้มา
+    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM"; 
     const sheetName = "logtime";
 
     const client = getSheetsClient();
@@ -43,21 +43,19 @@ async function saveLog(name, time) {
 
 // ===============================
 // อ่านจากห้อง log ใน Discord
-// ดึงชื่อ & เวลาออกเวรอัตโนมัติ
 // ===============================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
+
+    console.log("[LogTime] Module ready. Listening in channel:", LOG_CHANNEL);
 
     client.on("messageCreate", async message => {
         if (message.channel.id !== LOG_CHANNEL) return;
         if (message.author.bot) return;
 
-        // ตรวจรูปแบบข้อความ log แบบในรูป
         const content = message.content;
 
-        // ดึงชื่อจากบรรทัด: "ชื่อ   xxx"
         const nameMatch = content.match(/ชื่อ\s+(.+)/);
-        // ดึงเวลาออกเวรจากบรรทัด: "เวลาออกงาน ... 19:37:09"
         const timeMatch = content.match(/เวลาออกงาน.*?(\d{2}:\d{2}:\d{2})/);
 
         if (!nameMatch || !timeMatch) return;
@@ -67,7 +65,6 @@ function initializeLogListener(client) {
 
         console.log("📥 Log detected:", name, time);
 
-        // บันทึกลงชีต
         await saveLog(name, time);
     });
 }
