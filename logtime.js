@@ -36,14 +36,12 @@ async function findRowByName(sheets, spreadsheetId, sheetName, name) {
         row[0] && row[0].trim().toLowerCase() === name.trim().toLowerCase()
     );
 
-    if (index === -1) return null;
-
-    return index + 3;  // offset จาก C3
+    return index === -1 ? null : index + 3;
 }
 
 
 // ========================================================================
-// Save or Update (เริ่ม C3 → C=ชื่อ, D=วันที่, E=เวลา)
+// Save or Update (C = ชื่อ, D = วันที่, E = เวลา)
 // ========================================================================
 async function saveLog(name, date, time) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
@@ -55,23 +53,18 @@ async function saveLog(name, date, time) {
     await auth.authorize();
     const sheets = google.sheets({ version: "v4", auth });
 
-    // หาแถวตามชื่อ
     const row = await findRowByName(sheets, spreadsheetId, sheetName, name);
 
     if (row) {
-        // อัปเดตแค่วันที่ + เวลา (D, E)
-        const updateRange = `${sheetName}!D${row}:E${row}`;
-
         await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: updateRange,
+            range: `${sheetName}!D${row}:E${row}`,
             valueInputOption: "USER_ENTERED",
             resource: { values: [[date, time]] },
         });
 
         console.log(`🔄 Updated row ${row} →`, name, date, time);
     } else {
-        // เพิ่มใหม่ที่ C3
         await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: `${sheetName}!C3`,
@@ -85,7 +78,26 @@ async function saveLog(name, date, time) {
 
 
 // ========================================================================
-// Discord Log Listener
+// ULTRA-LIGHT PARSER (เร็ว + เบา + แม่นสุด)
+// ========================================================================
+function extractMinimal(text) {
+    text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
+
+    // 1) NAME
+    const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
+    const name = n ? n[1].trim() : null;
+
+    // 2) Date + Time (อ่านเฉพาะบรรทัดสุดท้าย)
+    const t = text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+    const date = t ? t[1] : null;
+    const time = t ? t[2] : null;
+
+    return { name, date, time };
+}
+
+
+// ========================================================================
+// Discord Log Listener (เวอร์ชันเบาแรง)
 // ========================================================================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
@@ -95,7 +107,10 @@ function initializeLogListener(client) {
 
         console.log("\n📥 NEW MESSAGE");
 
-        let text = message.content ? message.content + "\n" : "";
+        // -------- รวมเฉพาะข้อความที่ต้องใช้ --------
+        let text = "";
+
+        if (message.content) text += message.content + "\n";
 
         if (message.embeds?.length > 0) {
             for (const embed of message.embeds) {
@@ -104,54 +119,25 @@ function initializeLogListener(client) {
                 if (e.title) text += e.title + "\n";
                 if (e.description) text += e.description + "\n";
 
-                const fields = e.fields || [];
-                for (const f of fields) {
-                    if (!f) continue;
-                    const fname = f.name?.trim() || "";
-                    const fvalue = f.value?.trim() || "";
-                    text += `${fname}\n${fvalue}\n`;
+                if (e.fields) {
+                    for (const f of e.fields) {
+                        if (!f) continue;
+                        text += `${f.name}\n${f.value}\n`;
+                    }
                 }
             }
         }
 
-        text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
-        console.log("📜 PARSED:\n" + text);
+        // -------- Extract minimal information --------
+        const { name, date, time } = extractMinimal(text);
 
-        // --------------------- NAME ---------------------
-        let name = null;
-
-        const n1 = text.match(/(?:^|\n)ชื่อ\s*\n(.+?)(?:\n\S|$)/i);
-        if (n1) name = n1[1].trim();
-
-        const n2 = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+?)(?:\n|$)/i);
-        if (!name && n2) name = n2[1].trim();
-
-        if (!name) {
-            console.log("❌ NAME NOT FOUND");
-            return;
-        }
+        if (!name) return console.log("❌ NAME NOT FOUND");
+        if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
 
         console.log("🟩 NAME:", name);
-
-
-        // --------------------- Date + Time ---------------------
-        let date = null, time = null;
-        const dtRegex = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/g;
-
-        let match, last;
-        while ((match = dtRegex.exec(text)) !== null) last = match;
-
-        if (!last) {
-            console.log("❌ DATE NOT FOUND");
-            return;
-        }
-
-        date = last[1];
-        time = last[2];
-
         console.log("🟩 Date/Time:", date, time);
 
-        // --------------------- Save/Update ---------------------
+        // -------- Save sheet --------
         await saveLog(name, date, time);
 
         console.log("✔ DONE:", name, date, time);
