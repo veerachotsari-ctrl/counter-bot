@@ -1,4 +1,4 @@
-// index.js (ไฟล์หลัก - เป็นตัวเชื่อมต่อเท่านั้น)
+// index.js (ไฟล์หลัก)
 
 require("dotenv").config();
 const fs = require("fs");
@@ -12,14 +12,14 @@ const {
 const { initializeWelcomeModule } = require('./welcome.js');
 const { initializeCountCase } = require('./CountCase.js');
 
-// ⭐ โหลดระบบบันทึกเวลาออกเวร
+// ⭐ โหลดระบบ LogTime
 const { saveLog, initializeLogListener } = require("./logtime.js");
 
 // =========================================================
 // 🌐 CONFIG & INITIALIZATION
 // =========================================================
 
-const COMMAND_CHANNEL_ID = '1433450340564340889'; 
+const COMMAND_CHANNEL_ID = '1433450340564340889';
 
 const client = new Client({
     intents: [
@@ -35,11 +35,11 @@ const client = new Client({
 initializeWelcomeModule(client);
 initializeCountCase(client, COMMAND_CHANNEL_ID);
 
-// ⭐ เรียกใช้งานระบบจับข้อความห้อง Log
+// ⭐ เปิดระบบจับข้อความในห้อง log
 initializeLogListener(client);
 
 // =========================================================
-// ✨ ระบบคำสั่ง /ออกเวร
+// ✨ คำสั่ง /ออกเวร
 // =========================================================
 
 client.on("interactionCreate", async interaction => {
@@ -66,7 +66,7 @@ client.on("interactionCreate", async interaction => {
 });
 
 // =========================================================
-// 🌐 KEEP-ALIVE SERVER & LOGIN
+// 🌐 KEEP ALIVE
 // =========================================================
 
 http.createServer((req, res) => {
