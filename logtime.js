@@ -63,7 +63,7 @@ async function saveLog(name, date, time) {
     try {
         const res = await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: `${sheetName}!B2`,  // เริ่ม B2 (B-C-D)
+            range: `${sheetName}!B2`, // → บันทึก B-C-D
             valueInputOption: "USER_ENTERED",
             resource: { values: [[name, date, time]] },
         });
@@ -88,13 +88,33 @@ function initializeLogListener(client) {
         if (message.channel.id !== LOG_CHANNEL) return;
         if (message.author.bot) return;
 
-        console.log("📥 Incoming Log Message:", message.content);
+        // ===============================
+        // อ่านข้อความจาก embed
+        // ===============================
+        let text = message.content || "";
 
-        // ====== ชื่อ ======
-        const nameMatch = message.content.match(/ชื่อ\s*\n(.+)/);
+        if (message.embeds.length > 0) {
+            const embed = message.embeds[0];
 
-        // ====== เวลาออกงาน ======
-        const outMatch = message.content.match(/เวลาออกงาน\s*\n\s*(.+)/);
+            text =
+                (embed.title || "") + "\n" +
+                (embed.description || "") + "\n" +
+                embed.fields
+                    .map(f => `${f.name}\n${f.value}`)
+                    .join("\n");
+        }
+
+        console.log("📥 Parsed Text:\n" + text);
+
+        // ===============================
+        // Extract: ชื่อ
+        // ===============================
+        const nameMatch = text.match(/ชื่อ\s*\n(.+)/);
+
+        // ===============================
+        // Extract: เวลาออกงาน
+        // ===============================
+        const outMatch = text.match(/เวลาออกงาน\s*\n\s*(.+)/);
 
         if (!nameMatch || !outMatch) {
             console.log("⛔ Pattern not matched. Log format incorrect.");
@@ -103,18 +123,16 @@ function initializeLogListener(client) {
 
         const name = nameMatch[1].trim();
 
-        // เช่น: พฤหัสบดี - 04/12/2025 23:37:18
+        // เช่น: พฤหัสบดี - 04/12/2025 23:48:25
         let rawOut = outMatch[1].trim();
-
-        // ตัดชื่อวัน เช่น "พฤหัสบดี - "
-        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim();
+        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim(); // ตัดชื่อวันไทย
 
         const [date, time] = rawOut.split(" ");
 
-        console.log("📥 Parsed →", name, date, time);
+        console.log("📌 Final Parsed →", name, date, time);
 
         await saveLog(name, date, time);
     });
-} // <<<<<< ขาดตรงนี้ ผมเพิ่มให้เรียบร้อยแล้ว
+}
 
 module.exports = { saveLog, initializeLogListener };
