@@ -16,7 +16,7 @@ console.log(
 );
 
 // ===============================
-// Google Sheets Client (แบบเดียวกับ CountCase.js)
+// Google Sheets Client
 // ===============================
 function getSheetsClient() {
     const credentials = {
@@ -30,8 +30,6 @@ function getSheetsClient() {
         console.log("❌ Missing Google credentials");
         return null;
     }
-
-    console.log("🔑 PRIVATE_KEY sanitized. New length:", credentials.private_key.length);
 
     return new JWT({
         email: credentials.client_email,
@@ -65,7 +63,7 @@ async function saveLog(name, date, time) {
     try {
         const res = await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: `${sheetName}!A2`,
+            range: `${sheetName}!B2`,  // เริ่ม B2 (B-C-D)
             valueInputOption: "USER_ENTERED",
             resource: { values: [[name, date, time]] },
         });
@@ -92,29 +90,26 @@ function initializeLogListener(client) {
 
         console.log("📥 Incoming Log Message:", message.content);
 
-        // ชื่อ
-        const nameMatch = message.content.match(/รายงานเข้าเวรของ\s*-\s*(.+)/);
+        // ชื่อ (ตรงตามรูป)
+        const nameMatch = message.content.match(/ชื่อ\s*\n(.+)/);
 
-        // เวลาอยู่เวร (00:00:00)
-        const dutyTimeMatch = message.content.match(/ระยะเวลาที่เข้าเวร\s*\n(\d{2}:\d{2}:\d{2})/);
-
-        // วันที่ออกงาน +เวลา เช่น:
-        // พฤหัสบดี - 04/12/2025 22:46:39
+        // เวลาออกงาน (ตรงตามรูป)
         const outMatch = message.content.match(/เวลาออกงาน\s*\n(.+)/);
 
-        if (!nameMatch || !dutyTimeMatch || !outMatch) {
+        if (!nameMatch || !outMatch) {
             console.log("⛔ Pattern not matched. Log format incorrect.");
             return;
         }
 
         const name = nameMatch[1].trim();
 
-        // แยกวันที่/เวลาออกเวร
-        let rawOut = outMatch[1].trim();  
-        // ตัด "พฤหัสบดี - " หรือวันไทยอื่นๆ
+        // ข้อมูลเวลาออกงาน เช่น:
+        // พฤหัสบดี - 04/12/2025 23:28:20
+        let rawOut = outMatch[1].trim();
+
+        // ลบชื่อวันไทย เช่น "พฤหัสบดี - "
         rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim();
 
-        // แยกเป็น วันที่ / เวลา
         const [date, time] = rawOut.split(" ");
 
         console.log("📥 Parsed →", name, date, time);
