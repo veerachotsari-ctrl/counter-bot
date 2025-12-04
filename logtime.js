@@ -41,7 +41,7 @@ function getSheetsClient() {
 async function saveLog(name, time) {
     console.log(`📝 saveLog() called → ${name}, ${time}`);
 
-    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM"; 
+    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
 
     const client = getSheetsClient();
@@ -50,7 +50,6 @@ async function saveLog(name, time) {
         return false;
     }
 
-    // test authorize()
     try {
         await client.authorize();
         console.log("✅ Google Auth Success");
@@ -92,14 +91,23 @@ function initializeLogListener(client) {
 
         console.log("📥 Incoming Log Message:", message.content);
 
-        const nameMatch = message.content.match(/^(.*?)\s+(\d{2}:\d{2}:\d{2})$/);
-        if (!nameMatch) {
-            console.log("⛔ Pattern not matched.");
+        // ===============================
+        // Extract Name
+        // ===============================
+        const nameLine = message.content.match(/รายงานเข้าเวรของ\s*-\s*(.+)/);
+
+        // ===============================
+        // Extract Time 00:00:00
+        // ===============================
+        const timeLine = message.content.match(/(\d{2}:\d{2}:\d{2})/);
+
+        if (!nameLine || !timeLine) {
+            console.log("⛔ Pattern not matched. Log format incorrect.");
             return;
         }
 
-        const name = nameMatch[1];
-        const time = nameMatch[2];
+        const name = nameLine[1].trim();
+        const time = timeLine[1].trim();
 
         console.log("📥 Parsed →", name, time);
 
