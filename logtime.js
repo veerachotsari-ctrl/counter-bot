@@ -24,7 +24,7 @@ function getSheetsClient() {
 
 
 // ========================================================================
-// 🔍 ค้นหาแถวจากชื่อ (เริ่ม C3)
+// 🔍 ค้นหาแถวจากชื่อ (เริ่ม C3 ลงไป)
 // ========================================================================
 async function findRowByName(sheets, spreadsheetId, sheetName, name) {
     const range = `${sheetName}!C3:C`;
@@ -41,7 +41,7 @@ async function findRowByName(sheets, spreadsheetId, sheetName, name) {
 
 
 // ========================================================================
-// Save or Update (C = ชื่อ, D = วันที่, E = เวลา)
+// Save or Update (C = ชื่อ, D = วันที่, E = เวลาออกงาน)
 // ========================================================================
 async function saveLog(name, date, time) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
@@ -78,26 +78,29 @@ async function saveLog(name, date, time) {
 
 
 // ========================================================================
-// ULTRA-LIGHT PARSER (เร็ว + เบา + แม่นสุด)
+// ULTRA-LIGHT PARSER (ดึงเฉพาะ “เวลาออกงาน” แบบแม่นสุด)
 // ========================================================================
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
 
-    // 1) NAME
+    // 1️⃣ NAME
     const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
 
-    // 2) Date + Time (อ่านเฉพาะบรรทัดสุดท้าย)
-    const t = text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/);
-    const date = t ? t[1] : null;
-    const time = t ? t[2] : null;
+    // 2️⃣ Date/Time เฉพาะหลังคำว่า “เวลาออกงาน”
+    const out = text.match(
+        /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
+    );
+
+    const date = out ? out[1] : null;
+    const time = out ? out[2] : null;
 
     return { name, date, time };
 }
 
 
 // ========================================================================
-// Discord Log Listener (เวอร์ชันเบาแรง)
+// Discord Log Listener (เวอร์ชันเร็ว เบา แม่นยำ)
 // ========================================================================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
@@ -107,7 +110,6 @@ function initializeLogListener(client) {
 
         console.log("\n📥 NEW MESSAGE");
 
-        // -------- รวมเฉพาะข้อความที่ต้องใช้ --------
         let text = "";
 
         if (message.content) text += message.content + "\n";
@@ -128,7 +130,7 @@ function initializeLogListener(client) {
             }
         }
 
-        // -------- Extract minimal information --------
+        // 🎯 Extract ONLY what we need
         const { name, date, time } = extractMinimal(text);
 
         if (!name) return console.log("❌ NAME NOT FOUND");
@@ -137,7 +139,7 @@ function initializeLogListener(client) {
         console.log("🟩 NAME:", name);
         console.log("🟩 Date/Time:", date, time);
 
-        // -------- Save sheet --------
+        // 📝 Save to Google Sheet
         await saveLog(name, date, time);
 
         console.log("✔ DONE:", name, date, time);
