@@ -1,76 +1,107 @@
+// logtime.js
 const { google } = require("googleapis");
 
 // ===============================
-// Google Sheets Auth แบบเดียวกับ CountCase.js
+// DEBUG: แสดงค่าเข้ามา
 // ===============================
-async function getSheetsClient() {
-    const privateKey = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
+console.log("🔍 DEBUG CHECK");
+console.log("CLIENT_EMAIL:", process.env.CLIENT_EMAIL || "(missing)");
+console.log("PRIVATE_KEY length:", process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.length : "(missing)");
+console.log("PRIVATE_KEY first 30 chars:", process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.substring(0, 30) : "(missing)");
 
-    const auth = new google.auth.GoogleAuth({
-        credentials: {
-            client_email: process.env.CLIENT_EMAIL,
-            private_key: privateKey
-        },
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-    });
+// ===============================
+// Create Google Sheets Client
+// ===============================
+function getSheetsClient() {
+    let key = process.env.PRIVATE_KEY;
 
-    return await auth.getClient();
+    if (!key) {
+        console.log("❌ PRIVATE_KEY missing in environment!");
+        return null;
+    }
+
+    // convert \n → newline
+    key = key.replace(/\\n/g, "\n");
+
+    console.log("🔑 PRIVATE_KEY sanitized. New length:", key.length);
+
+    const client = new google.auth.JWT(
+        process.env.CLIENT_EMAIL,
+        null,
+        key,
+        ["https://www.googleapis.com/auth/spreadsheets"]
+    );
+
+    return client;
 }
 
 // ===============================
-// บันทึกชื่อ + เวลาออกเวร ลงชีต logtime
+// Append To Google Sheet
 // ===============================
 async function saveLog(name, time) {
-    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
+    console.log(`📝 saveLog() called → ${name}, ${time}`);
+
+    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM"; 
     const sheetName = "logtime";
 
-    try {
-        const auth = await getSheetsClient();
-        const sheets = google.sheets({ version: "v4", auth });
+    const client = getSheetsClient();
+    if (!client) {
+        console.log("❌ Google client not created!");
+        return false;
+    }
 
-        await sheets.spreadsheets.values.append({
+    // test authorize()
+    try {
+        await client.authorize();
+        console.log("✅ Google Auth Success");
+    } catch (e) {
+        console.log("❌ Google Auth FAILED:", e.message);
+        return false;
+    }
+
+    const sheets = google.sheets({ version: "v4", auth: client });
+
+    try {
+        const res = await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: `${sheetName}!A2`,
             valueInputOption: "USER_ENTERED",
-            resource: {
-                values: [[name, time]]
-            }
+            resource: { values: [[name, time]] }
         });
 
-        console.log(`✔ Saved to Google Sheets: ${name} | ${time}`);
+        console.log("📌 Google Sheets Append Result:", JSON.stringify(res.data));
+        console.log("✔ Saved to Google Sheets!");
         return true;
     } catch (err) {
-        console.error("❌ Google Sheets ERROR:", err);
+        console.log("❌ Google Sheets ERROR:", err);
         return false;
     }
 }
 
 // ===============================
-// อ่านข้อมูลจากห้อง Log ใน Discord
+// Discord Listener (Auto Capture)
 // ===============================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
 
-    console.log("[LogTime] Module ready. Listening:", LOG_CHANNEL);
+    console.log("[LogTime] Listener attached to channel:", LOG_CHANNEL);
 
     client.on("messageCreate", async message => {
         if (message.channel.id !== LOG_CHANNEL) return;
         if (message.author.bot) return;
 
-        const text = message.content;
+        console.log("📥 Incoming Log Message:", message.content);
 
-        // ดึงชื่อ
-        const nameMatch = text.match(/ชื่อ\s+(.+)/);
+        const nameMatch = message.content.match(/^(.*?)\s+(\d{2}:\d{2}:\d{2})$/);
+        if (!nameMatch) {
+            console.log("⛔ Pattern not matched.");
+            return;
+        }
 
-        // ดึงเวลา
-        const timeMatch = text.match(/เวลาออกงาน.*?(\d{2}:\d{2}:\d{2})/);
+        const name = nameMatch[1];
+        const time = nameMatch[2];
 
-        if (!nameMatch || !timeMatch) return;
-
-        const name = nameMatch[1].trim();
-        const time = timeMatch[1].trim();
-
-        console.log("📥 Detected Log:", name, time);
+        console.log("📥 Parsed →", name, time);
 
         await saveLog(name, time);
     });
