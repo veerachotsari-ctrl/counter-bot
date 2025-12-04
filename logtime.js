@@ -1,4 +1,3 @@
-// logtime.js
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
 
@@ -17,7 +16,7 @@ console.log(
 );
 
 // ===============================
-// Create Google Sheets Client
+// Google Sheets Client (แบบเดียวกับ CountCase.js)
 // ===============================
 function getSheetsClient() {
     const credentials = {
@@ -42,10 +41,10 @@ function getSheetsClient() {
 }
 
 // ===============================
-// Append To Google Sheet
+// Save to Google Sheet
 // ===============================
-async function saveLog(name, dateOut, time) {
-    console.log(`📝 saveLog() → ${name}, ${dateOut}, ${time}`);
+async function saveLog(name, date, time) {
+    console.log(`📝 saveLog() → ${name}, ${date}, ${time}`);
 
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
@@ -68,7 +67,7 @@ async function saveLog(name, dateOut, time) {
             spreadsheetId,
             range: `${sheetName}!A2`,
             valueInputOption: "USER_ENTERED",
-            resource: { values: [[name, dateOut, time]] },
+            resource: { values: [[name, date, time]] },
         });
 
         console.log("📌 Google Sheets Append Result:", JSON.stringify(res.data));
@@ -85,51 +84,42 @@ async function saveLog(name, dateOut, time) {
 // ===============================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
-
     console.log("[LogTime] Listener attached to channel:", LOG_CHANNEL);
 
     client.on("messageCreate", async message => {
         if (message.channel.id !== LOG_CHANNEL) return;
         if (message.author.bot) return;
 
-        let rawText = message.content;
+        console.log("📥 Incoming Log Message:", message.content);
 
-        // ถ้าเป็น Embed → ดึงข้อมูลออกมา
-        if (!rawText || rawText.trim() === "") {
-            if (message.embeds.length > 0) {
-                const embed = message.embeds[0];
+        // ชื่อ
+        const nameMatch = message.content.match(/รายงานเข้าเวรของ\s*-\s*(.+)/);
 
-                rawText = [
-                    embed.title || "",
-                    embed.description || "",
-                    ...(embed.fields?.map(f => `${f.name}\n${f.value}`) || [])
-                ].join("\n");
-            }
-        }
+        // เวลาอยู่เวร (00:00:00)
+        const dutyTimeMatch = message.content.match(/ระยะเวลาที่เข้าเวร\s*\n(\d{2}:\d{2}:\d{2})/);
 
-        console.log("📥 Incoming Raw Text:\n" + rawText);
+        // วันที่ออกงาน +เวลา เช่น:
+        // พฤหัสบดี - 04/12/2025 22:46:39
+        const outMatch = message.content.match(/เวลาออกงาน\s*\n(.+)/);
 
-        // ---- Extract Name ----
-        const nameMatch = rawText.match(/รายงานเข้าเวรของ\s*-\s*(.+)/);
-
-        // ---- Extract Time (00:00:00) ----
-        const timeMatch = rawText.match(/(\d{2}:\d{2}:\d{2})/);
-
-        // ---- Extract Date Out (วันที่ออกงาน) ----
-        const dateMatch = rawText.match(/เวลาออกงาน\s*\n(.+)/);
-
-        if (!nameMatch || !timeMatch || !dateMatch) {
+        if (!nameMatch || !dutyTimeMatch || !outMatch) {
             console.log("⛔ Pattern not matched. Log format incorrect.");
             return;
         }
 
         const name = nameMatch[1].trim();
-        const time = timeMatch[1].trim();
-        const dateOut = dateMatch[1].trim(); // เช่น: พฤหัสบดี - 04/12/2025 22:46:39
 
-        console.log("📥 Parsed →", name, dateOut, time);
+        // แยกวันที่/เวลาออกเวร
+        let rawOut = outMatch[1].trim();  
+        // ตัด "พฤหัสบดี - " หรือวันไทยอื่นๆ
+        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim();
 
-        await saveLog(name, dateOut, time);
+        // แยกเป็น วันที่ / เวลา
+        const [date, time] = rawOut.split(" ");
+
+        console.log("📥 Parsed →", name, date, time);
+
+        await saveLog(name, date, time);
     });
 }
 
