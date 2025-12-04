@@ -1,29 +1,37 @@
-// LogTime.js (ฉบับรวม Google Sheets Client ในตัว)
-
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
 
-// ===============================================
-// 1. Google Sheets Client (จัดการการเชื่อมต่อและการตรวจสอบสิทธิ์)
-// ===============================================
+// ===============================
+// DEBUG
+// ===============================
+console.log("🔍 DEBUG CHECK");
+console.log("CLIENT_EMAIL:", process.env.CLIENT_EMAIL || "(missing)");
+console.log(
+    "PRIVATE_KEY length:",
+    process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.length : "(missing)"
+);
+console.log(
+    "PRIVATE_KEY first 30 chars:",
+    process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.substring(0, 30) : "(missing)"
+);
 
-/**
- * สร้าง JWT client เพื่อตรวจสอบสิทธิ์กับ Google Sheets API
- * โดยใช้ตัวแปรสภาพแวดล้อม (Environment Variables) CLIENT_EMAIL และ PRIVATE_KEY
- */
-function getSheetsAuthClient() {
+// ===============================
+// Google Sheets Client (แบบเดียวกับ CountCase.js)
+// ===============================
+function getSheetsClient() {
     const credentials = {
         client_email: process.env.CLIENT_EMAIL,
-        // แทนที่ \n ด้วย \n จริงใน Private Key
-        private_key: process.env.PRIVATE_KEY 
+        private_key: process.env.PRIVATE_KEY
             ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n")
             : null,
     };
 
     if (!credentials.client_email || !credentials.private_key) {
-        console.error("❌ ERROR: Missing Google credentials (CLIENT_EMAIL or PRIVATE_KEY).");
+        console.log("❌ Missing Google credentials");
         return null;
     }
+
+    console.log("🔑 PRIVATE_KEY sanitized. New length:", credentials.private_key.length);
 
     return new JWT({
         email: credentials.client_email,
@@ -32,121 +40,87 @@ function getSheetsAuthClient() {
     });
 }
 
+// ===============================
+// Save to Google Sheet
+// ===============================
+async function saveLog(name, date, time) {
+    console.log(`📝 saveLog() → ${name}, ${date}, ${time}`);
 
-// ===============================================
-// 2. Save Log to Google Sheets
-// ===============================================
+    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
+    const sheetName = "logtime";
 
-const SPREADSHEET_ID = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
-const SHEET_RANGE = "logtime!A:F";
-
-/**
- * บันทึกข้อมูลเข้า Google Sheets
- * บันทึก 6 คอลัมน์: A=ชื่อ, B=วันที่เข้า, C=เวลาเข้า, D=วันที่ออก, E=เวลาออก, F=ระยะเวลา
- */
-async function saveLog(name, duration, timeIn, timeOut) {
-    console.log(`📝 Attempting to save log → ${name}, Duration: ${duration}`);
-
-    const auth = getSheetsAuthClient();
+    const auth = getSheetsClient();
     if (!auth) return false;
 
-    // 1. ตรวจสอบสิทธิ์
     try {
         await auth.authorize();
         console.log("✅ Google Auth Success");
     } catch (err) {
-        console.error("❌ Google Auth FAILED:", err.message);
+        console.log("❌ Google Auth FAILED:", err.message);
         return false;
     }
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    // 2. แยกวันที่และเวลา
-    const [dateIn, timeInTime] = timeIn.split(" ");
-    const [dateOut, timeOutTime] = timeOut.split(" ");
-
-    const values = [[
-        name,
-        dateIn,
-        timeInTime,
-        dateOut,
-        timeOutTime,
-        duration
-    ]];
-
-    // 3. บันทึกข้อมูล
     try {
         const res = await sheets.spreadsheets.values.append({
-            spreadsheetId: SPREADSHEET_ID,
-            range: SHEET_RANGE, 
-            valueInputOption: "RAW",
-            requestBody: { values }
+            spreadsheetId,
+            range: `${sheetName}!A2`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[name, date, time]] },
         });
 
-        console.log("✔ Saved to Google Sheets! Rows updated:", res.data.updates.updatedRows);
+        console.log("📌 Google Sheets Append Result:", JSON.stringify(res.data));
+        console.log("✔ Saved to Google Sheets!");
         return true;
     } catch (err) {
-        console.error("❌ Google Sheets APPEND ERROR:", err.message || JSON.stringify(err));
+        console.log("❌ Google Sheets ERROR:", err);
         return false;
     }
 }
 
+// ===============================
+// Discord Listener
+// ===============================
+function initializeLogListener(client) {
+    const LOG_CHANNEL = "1445640443986710548";
+    console.log("[LogTime] Listener attached to channel:", LOG_CHANNEL);
 
-// ===============================================
-// 3. Discord Listener (Export Module)
-// ===============================================
-
-/**
- * ฟังก์ชันหลักที่ส่งออกไปเพื่อตั้งค่า Discord Listener
- * @param {Client} client Discord Client object
- */
-module.exports = (client) => {
-    const channelId = "1445640443986710548";
-    
-    console.log(`[LogTime] Listener initialized for channel: ${channelId}`);
-
-    client.on("messageCreate", async (message) => {
-        // 1. กรองข้อความ
-        if (message.channel.id !== channelId) return;
-        if (!message.embeds.length) return;
+    client.on("messageCreate", async message => {
+        if (message.channel.id !== LOG_CHANNEL) return;
         if (message.author.bot) return;
 
-        const embed = message.embeds[0];
+        console.log("📥 Incoming Log Message:", message.content);
 
-        let name = "";
-        let timeIn = "";
-        let timeOut = "";
-        let duration = "";
+        // ชื่อ
+        const nameMatch = message.content.match(/รายงานเข้าเวรของ\s*-\s*(.+)/);
 
-        // 2. ดึงข้อมูลจาก Embed
-        embed.fields.forEach(f => {
-            const label = f.name.trim();
-            const value = f.value.trim();
+        // เวลาอยู่เวร (00:00:00)
+        const dutyTimeMatch = message.content.match(/ระยะเวลาที่เข้าเวร\s*\n(\d{2}:\d{2}:\d{2})/);
 
-            if (label === "ชื่อ") name = value;
-            if (label === "เวลาทำงาน") timeIn = value;
-            if (label === "เวลาออกงาน") timeOut = value;
-            if (label === "ระยะเวลาที่เข้าเวร") duration = value;
-        });
+        // วันที่ออกงาน +เวลา เช่น:
+        // พฤหัสบดี - 04/12/2025 22:46:39
+        const outMatch = message.content.match(/เวลาออกงาน\s*\n(.+)/);
 
-        if (!name || !timeIn || !timeOut || !duration) {
-            console.log("❌ Missing fields. Skip.");
+        if (!nameMatch || !dutyTimeMatch || !outMatch) {
+            console.log("⛔ Pattern not matched. Log format incorrect.");
             return;
         }
 
-        // 3. ฟังก์ชันทำความสะอาดข้อความ (ตัดส่วนที่เป็นวันไทยทิ้ง)
-        // เช่น "พฤหัสบดี - 04/12/2025 22:46:43"
-        const clean = (text) => {
-            const parts = text.split("-");
-            return parts.length > 1 ? parts[1].trim() : text.trim();
-        };
+        const name = nameMatch[1].trim();
 
-        const timeInClean = clean(timeIn);
-        const timeOutClean = clean(timeOut);
-        
-        console.log(`📌 Parsed → Name: ${name}, Duration: ${duration}, TimeIn: ${timeInClean}, TimeOut: ${timeOutClean}`);
+        // แยกวันที่/เวลาออกเวร
+        let rawOut = outMatch[1].trim();  
+        // ตัด "พฤหัสบดี - " หรือวันไทยอื่นๆ
+        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim();
 
-        // 4. เรียกฟังก์ชันบันทึก
-        await saveLog(name, duration, timeInClean, timeOutClean);
+        // แยกเป็น วันที่ / เวลา
+        const [date, time] = rawOut.split(" ");
+
+        console.log("📥 Parsed →", name, date, time);
+
+        await saveLog(name, date, time);
     });
-};
+}
+
+module.exports = { saveLog, initializeLogListener };
