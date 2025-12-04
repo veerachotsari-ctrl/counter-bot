@@ -85,35 +85,36 @@ function initializeLogListener(client) {
     console.log("[LogTime] Listener attached to channel:", LOG_CHANNEL);
 
     client.on("messageCreate", async message => {
-    if (message.channel.id !== LOG_CHANNEL) return;
-    if (message.author.bot) return;
+        if (message.channel.id !== LOG_CHANNEL) return;
+        if (message.author.bot) return;
 
-    console.log("📥 Incoming Log Message:", message.content);
+        console.log("📥 Incoming Log Message:", message.content);
 
-    // ====== ชื่อ ======
-    const nameMatch = message.content.match(/ชื่อ\s*\n(.+)/);
+        // ====== ชื่อ ======
+        const nameMatch = message.content.match(/ชื่อ\s*\n(.+)/);
 
-    // ====== เวลาออกงาน ======
-    const outMatch = message.content.match(/เวลาออกงาน\s*\n\s*(.+)/);
+        // ====== เวลาออกงาน ======
+        const outMatch = message.content.match(/เวลาออกงาน\s*\n\s*(.+)/);
 
-    if (!nameMatch || !outMatch) {
-        console.log("⛔ Pattern not matched. Log format incorrect.");
-        return;
-    }
+        if (!nameMatch || !outMatch) {
+            console.log("⛔ Pattern not matched. Log format incorrect.");
+            return;
+        }
 
-    const name = nameMatch[1].trim();
+        const name = nameMatch[1].trim();
 
-    // เช่น: พฤหัสบดี - 04/12/2025 23:37:18
-    let rawOut = outMatch[1].trim();
+        // เช่น: พฤหัสบดี - 04/12/2025 23:37:18
+        let rawOut = outMatch[1].trim();
 
-    // ตัดชื่อวัน เช่น "พฤหัสบดี - "
-    rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim();
+        // ตัดชื่อวัน เช่น "พฤหัสบดี - "
+        rawOut = rawOut.replace(/^[ก-ฮ]+ -\s*/, "").trim();
 
-    const [date, time] = rawOut.split(" ");
+        const [date, time] = rawOut.split(" ");
 
-    console.log("📥 Parsed →", name, date, time);
+        console.log("📥 Parsed →", name, date, time);
 
-    await saveLog(name, date, time);
-});
+        await saveLog(name, date, time);
+    });
+} // <<<<<< ขาดตรงนี้ ผมเพิ่มให้เรียบร้อยแล้ว
 
 module.exports = { saveLog, initializeLogListener };
