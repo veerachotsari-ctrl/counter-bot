@@ -1,7 +1,7 @@
 // LogTime.js (เวอร์ชันแก้สมบูรณ์)
 // คอยอ่านข้อมูลจาก Log และเขียนลง Google Sheets
 
-module.exports = (client, sheets) => {
+function initializeLogListener(client, sheets) {
     const channelId = "1445640443986710548"; // ห้องที่อ่าน log
 
     // ---------------------------
@@ -20,7 +20,7 @@ module.exports = (client, sheets) => {
     // ฟังก์ชันแปลงเวลา
     // ---------------------------
     function parseThaiDate(text) {
-        // ตัวอย่างข้อความ:
+        // ตัวอย่าง:
         // "พฤหัสบดี - 04/12/2025 22:46:43"
         try {
             const parts = text.split("-")[1].trim();
@@ -43,7 +43,7 @@ module.exports = (client, sheets) => {
 
         const playerName = embed.title?.trim() || "";       // ชื่อ เช่น Baigapow Mookrob
         const timeText = embed.description?.trim() || "";   // เวลาแบบไทย
-        const action = embed.fields?.[0]?.value || "";       // "เข้าเวร" หรือ "ออกเวร"
+        const action = embed.fields?.[0]?.value || "";      // "เข้าเวร" หรือ "ออกเวร"
 
         if (!playerName || !timeText) return;
 
@@ -59,7 +59,7 @@ module.exports = (client, sheets) => {
         const normName = normalizeName(playerName);
 
         // ---------------------------
-        // 🔍 ค้นหาชื่อใน B แบบล้าง format
+        // 🔍 ค้นหาชื่อใน B แบบ normalize
         // ---------------------------
         const target = rows.find(r => {
             const raw = r["รายชื่อตำรวจ"] ?? "";
@@ -97,4 +97,6 @@ module.exports = (client, sheets) => {
         await target.save();
         console.log("✅ บันทึกสำเร็จ:", playerName);
     });
-};
+}
+
+module.exports = { initializeLogListener };
