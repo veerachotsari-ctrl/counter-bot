@@ -42,10 +42,11 @@ async function findRowByName(sheets, spreadsheetId, sheetName, name) {
 }
 
 
+
 // ========================================================================
-// Save or Update (C = ชื่อ, D = วันที่, E = เวลาออกงาน)
+// Save or Update (C = name, D = date, E = time, H = steam)
 // ========================================================================
-async function saveLog(name, date, time) {
+async function saveLog(name, date, time, steamId) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
 
@@ -58,29 +59,32 @@ async function saveLog(name, date, time) {
     const row = await findRowByName(sheets, spreadsheetId, sheetName, name);
 
     if (row) {
+        // update D, E, H (ช่อง F,G ว่าง)
         await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `${sheetName}!D${row}:E${row}`,
+            range: `${sheetName}!D${row}:H${row}`,
             valueInputOption: "USER_ENTERED",
-            resource: { values: [[date, time]] },
+            resource: { values: [[date, time, "", "", steamId]] },
         });
 
-        console.log(`🔄 Updated row ${row} →`, name, date, time);
+        console.log(`🔄 Updated row ${row} →`, name, date, time, steamId);
     } else {
+        // append C, D, E, F(empty), G(empty), H(steam)
         await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: `${sheetName}!C3`,
             valueInputOption: "USER_ENTERED",
-            resource: { values: [[name, date, time]] },
+            resource: { values: [[name, date, time, "", "", steamId]] },
         });
 
-        console.log("➕ Added new row →", name, date, time);
+        console.log("➕ Added new row →", name, date, time, steamId);
     }
 }
 
 
+
 // ========================================================================
-// ULTRA-LIGHT PARSER (ดึงเฉพาะ “เวลาออกงาน” แบบแม่นสุด)
+// ULTRA-LIGHT PARSER (ดึงแบบแม่นสุด + steam)
 // ========================================================================
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
@@ -89,20 +93,24 @@ function extractMinimal(text) {
     const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
 
-    // 2️⃣ Date/Time เฉพาะหลังคำว่า “เวลาออกงาน”
+    // 2️⃣ Date + Time จากคำว่า "เวลาออกงาน"
     const out = text.match(
         /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
     );
-
     const date = out ? out[1] : null;
     const time = out ? out[2] : null;
 
-    return { name, date, time };
+    // 3️⃣ Steam ID เช่น steam:110000107392ebb
+    const sid = text.match(/steam:[0-9a-fA-F]+/i);
+    const steamId = sid ? sid[0] : null;
+
+    return { name, date, time, steamId };
 }
 
 
+
 // ========================================================================
-// Discord Log Listener (เวอร์ชันเร็ว เบา แม่นยำ)
+// Discord Log Listener
 // ========================================================================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
@@ -132,19 +140,21 @@ function initializeLogListener(client) {
             }
         }
 
-        // 🎯 Extract ONLY what we need
-        const { name, date, time } = extractMinimal(text);
+        // 🎯 Extract data
+        const { name, date, time, steamId } = extractMinimal(text);
 
         if (!name) return console.log("❌ NAME NOT FOUND");
         if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
+        if (!steamId) return console.log("❌ STEAM ID NOT FOUND");
 
         console.log("🟩 NAME:", name);
         console.log("🟩 Date/Time:", date, time);
+        console.log("🟩 Steam:", steamId);
 
-        // 📝 Save to Google Sheet
-        await saveLog(name, date, time);
+        // Save to Google Sheet
+        await saveLog(name, date, time, steamId);
 
-        console.log("✔ DONE:", name, date, time);
+        console.log("✔ DONE:", name, date, time, steamId);
     });
 }
 
