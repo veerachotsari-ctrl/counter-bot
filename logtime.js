@@ -1,201 +1,143 @@
 // scanner.js
+const axios = require("axios");
+const { imageHash } = require("image-hash");
+const crypto = require("crypto");
+const { log, error } = require("./logger");
+const memory = require("./memoryManager");
+
+// ========================================================================
+// Helper
+// ========================================================================
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function md5(buffer) {
+  return crypto.createHash("md5").update(buffer).digest("hex");
+}
+
+// ========================================================================
+// Download Image
+// ========================================================================
+async function downloadImage(url) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await axios.get(url, { responseType: "arraybuffer" });
+      return Buffer.from(res.data);
+    } catch (err) {
+      await sleep(400);
+    }
+  }
+  return null;
+}
+
+// ========================================================================
+// Get Image Hash (MD5 + Perceptual Hash)
+// ========================================================================
+async function getImageHash(buffer) {
+  return new Promise((resolve) => {
+    imageHash({ data: buffer, bits: 16 }, (err, perceptual) => {
+      if (err) return resolve(null);
+      resolve({
+        md5: md5(buffer),
+        perceptual,
+      });
+    });
+  });
+}
+
+// ========================================================================
+// Google Sheets
+// ========================================================================
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
 
-
-// ========================================================================
-// Google Sheets Client
-// ========================================================================
 function getSheetsClient() {
-    const privateKey = process.env.PRIVATE_KEY
-        ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n")
-        : null;
-
-    if (!process.env.CLIENT_EMAIL || !privateKey) {
-        console.log("❌ Missing GOOGLE ENV");
-        return null;
-    }
-
-    return new JWT({
-        email: process.env.CLIENT_EMAIL,
-        key: privateKey,
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
+  const privateKey = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
+  const client = new JWT({
+    email: process.env.CLIENT_EMAIL,
+    key: privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  return google.sheets({ version: "v4", auth: client });
 }
 
+const SPREADSHEET_ID = process.env.SHEET_ID;
 
 // ========================================================================
-// SMART ROW FINDER (ห้ามแตะ B)
+// Write Result to Google Sheet
 // ========================================================================
-async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
+async function writeToSheet(name, hash, steamIdFull) {
+  try {
+    const sheets = getSheetsClient();
 
-    // STEP 1: หาใน B
-    const respB = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!B3:B`
+    const read = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "DATA!B:H",
     });
-    const rowsB = respB.data.values || [];
 
-    const rowIndexB = rowsB.findIndex(row =>
-        row[0] && row[0].toLowerCase().includes(name.toLowerCase())
-    );
-    if (rowIndexB !== -1) return rowIndexB + 3;
+    const rows = read.data.values || [];
 
-    // STEP 2: หาใน C
-    const respC = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!C3:C`
-    });
-    const rowsC = respC.data.values || [];
+    let foundC = false;
 
-    const rowIndexC = rowsC.findIndex(row =>
-        row[0] &&
-        row[0].trim().toLowerCase() === name.trim().toLowerCase()
-    );
-    if (rowIndexC !== -1) return rowIndexC + 3;
-
-    // STEP 3: หาแถวว่างใน B
-    const emptyRowInB = rowsB.findIndex(row =>
-        !row[0] || row[0].trim() === ""
-    );
-    if (emptyRowInB !== -1) return emptyRowInB + 3;
-
-    // STEP 4: append แถวใหม่
-    return rowsB.length + 3;
-}
-
-
-
-// ========================================================================
-// SAVE OR UPDATE LOG  (เพิ่ม Steam ลง H)
-// ========================================================================
-async function saveLog(name, date, time, steamId) {
-    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
-    const sheetName = "logtime";
-
-    const auth = getSheetsClient();
-    if (!auth) return;
-
-    await auth.authorize();
-    const sheets = google.sheets({ version: "v4", auth });
-
-    const row = await findRowSmart(sheets, spreadsheetId, sheetName, name);
-
-    // ตรวจ C ว่ามีชื่ออยู่หรือยัง
-    const checkC = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!C${row}`
-    });
-    const existsC = checkC.data.values && checkC.data.values[0];
-
-    // ถ้ายังไม่มีชื่อ → ใส่ชื่อใน C
-    if (!existsC) {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!C${row}`,
-            valueInputOption: "USER_ENTERED",
-            resource: { values: [[name]] },
-        });
+    // ------------------------------------------------------------
+    // 1) ถ้าเจอชื่อใน C → ไม่ทำอะไร
+    // ------------------------------------------------------------
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i][1] === name) {
+        foundC = true;
+        break;
+      }
     }
 
-    // อัปเดตวันที่ + เวลา → D, E
+    if (foundC) return { status: "exists" };
+
+    // ------------------------------------------------------------
+    // 2) หาแถวว่างจาก B (แต่ "ไม่แตะ B")
+    //    แล้วเขียนข้อมูลใหม่ลง C / D / E / H
+    // ------------------------------------------------------------
+    let targetRow = rows.length + 1; // ถัดจากสุดท้าย
+
+    const values = [[
+      "",              // B (ห้ามแตะ)
+      name,            // C
+      new Date().toLocaleDateString("th-TH"), // D
+      new Date().toLocaleTimeString("th-TH"), // E
+      "",              // F (ไม่ใช้งาน)
+      "",              // G (ไม่ใช้งาน)
+      steamIdFull      // H – เซฟ steam:xxxxxxxxx
+    ]];
+
     await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `${sheetName}!D${row}:E${row}`,
-        valueInputOption: "USER_ENTERED",
-        resource: { values: [[date, time]] },
+      spreadsheetId: SPREADSHEET_ID,
+      range: `DATA!B${targetRow}:H${targetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values },
     });
 
-    // อัปเดต Steam ID → H
-    if (steamId) {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!H${row}`,
-            valueInputOption: "USER_ENTERED",
-            resource: { values: [[steamId]] },
-        });
-    }
+    return { status: "saved" };
 
-    console.log(`✔ Saved @ Row ${row} →`, name, date, time, steamId);
+  } catch (err) {
+    error("writeToSheet", err.message);
+  }
 }
 
-
-
 // ========================================================================
-// EXTRACT MINIMAL (ชื่อ + วัน + เวลา + STEAM)
+// Main Scan Function
 // ========================================================================
-function extractMinimal(text) {
-    text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
+async function scanImage(url, name, steamIdFull) {
+  log(`Scanning image from ${url}`);
 
-    // 1) NAME
-    const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
-    const name = n ? n[1].trim() : null;
+  const img = await downloadImage(url);
+  if (!img) return { error: "download_failed" };
 
-    // 2) DATE + TIME หลังคำว่า "เวลาออกงาน"
-    const out = text.match(
-        /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
-    );
-    const date = out ? out[1] : null;
-    const time = out ? out[2] : null;
+  const hash = await getImageHash(img);
+  if (!hash) return { error: "hash_failed" };
 
-    // 3) STEAM ID เช่น steam:11000010xxxxxxx
-    const idMatch = text.match(/steam:(\w+)/i);
-    const steamId = idMatch ? idMatch[1] : null;
+  memory.saveHash(name, hash.md5);
 
-    return { name, date, time, steamId };
+  const result = await writeToSheet(name, hash, steamIdFull);
+  return { result };
 }
 
-
-
-// ========================================================================
-// DISCORD LOG LISTENER
-// ========================================================================
-function initializeLogListener(client) {
-    const LOG_CHANNEL = "1445640443986710548";
-
-    client.on("messageCreate", async message => {
-        if (message.channel.id !== LOG_CHANNEL) return;
-
-        console.log("\n📥 NEW MESSAGE IN LOG CHANNEL");
-
-        let text = "";
-
-        // message content
-        if (message.content) text += message.content + "\n";
-
-        // embeds
-        if (message.embeds?.length > 0) {
-            for (const embed of message.embeds) {
-                const e = embed.data ?? embed;
-
-                if (e.title) text += e.title + "\n";
-                if (e.description) text += e.description + "\n";
-
-                if (e.fields) {
-                    for (const f of e.fields) {
-                        if (!f) continue;
-                        text += `${f.name}\n${f.value}\n`;
-                    }
-                }
-            }
-        }
-
-        // Extract
-        const { name, date, time, steamId } = extractMinimal(text);
-
-        if (!name) return console.log("❌ NAME NOT FOUND");
-        if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
-
-        console.log("🟩 NAME:", name);
-        console.log("🟩 TIME:", date, time);
-        console.log("🟩 STEAM:", steamId);
-
-        // Save → Sheets
-        await saveLog(name, date, time, steamId);
-
-        console.log("✔ DONE");
-    });
-}
-
-
-module.exports = { initializeLogListener };
+module.exports = {
+  scanImage,
+};
