@@ -1,169 +1,90 @@
-const { google } = require("googleapis");
-const { JWT } = require("google-auth-library");
+// =========================================================
+// LogTime.js (เวอร์ชันเต็มล่าสุด)
+// เงื่อนไข:
+//  - อ่านชื่อจาก Embed Title
+//  - ค้นหาชื่อในคอลัมน์ B และ C
+//  - ถ้าเจอชื่อใน B → เพิ่มข้อมูลในคอลัมน์ C ด้วย
+//  - ถ้าไม่เจอทั้ง B และ C → เพิ่มชื่อในคอลัมน์ C เท่านั้น (ไม่แตะ B)
+// =========================================================
 
+module.exports = (client, sheets) => {
+    const channelId = "1445640443986710548";
+    const spreadsheetId = "YOUR_SPREADSHEET_ID"; // <== ใส่ของจริง
 
-// ========================================================================
-// Google Sheets Client
-// ========================================================================
-function getSheetsClient() {
-    const privateKey = process.env.PRIVATE_KEY
-        ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n")
-        : null;
+    client.on("messageCreate", async (message) => {
+        if (message.channel.id !== channelId) return;
+        if (!message.embeds.length) return;
 
-    if (!process.env.CLIENT_EMAIL || !privateKey) {
-        console.log("❌ Missing GOOGLE ENV");
-        return null;
-    }
+        try {
+            // ======== 1) ดึงข้อมูลจาก Embed ========
+            const embed = message.embeds[0];
+            const name = embed.title?.trim();  // ชื่อ
+            const description = embed.description || "";
 
-    return new JWT({
-        email: process.env.CLIENT_EMAIL,
-        key: privateKey,
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
-}
+            if (!name) return;
 
+            // ======== 2) ดึงข้อมูล column B และ C จากชีต ========
+            const sheetName = "LogTime"; // <== ชื่อชีตแก้ได้
+            const rangeB = `${sheetName}!B:B`;
+            const rangeC = `${sheetName}!C:C`;
 
-// ========================================================================
-// 🔍 ค้นหาแถวจากชื่อ (แบบใหม่: เช็คทั้ง C และ B)
-// ========================================================================
-async function findRowByName(sheets, spreadsheetId, sheetName, name) {
-    const range = `${sheetName}!B3:C`;
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+            const readB = await sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: rangeB,
+            });
+            const readC = await sheets.spreadsheets.values.get({
+                spreadsheetId,
+                range: rangeC,
+            });
 
-    const rows = res.data.values || [];
-    const lower = name.trim().toLowerCase();
+            const colB = readB.data.values ? readB.data.values.flat() : [];
+            const colC = readC.data.values ? readC.data.values.flat() : [];
 
-    let foundIndex = null;
+            // ======== 3) ค้นหาชื่อใน B และ C ========
+            const indexB = colB.findIndex(v => v === name);
+            const indexC = colC.findIndex(v => v === name);
 
-    rows.forEach((row, i) => {
-        const colB = row[0] ? row[0].toLowerCase() : "";
-        const colC = row[1] ? row[1].toLowerCase() : "";
+            let writeRow = null;
 
-        // เงื่อนไข 1: C = ชื่อเป๊ะ
-        if (colC === lower) {
-            foundIndex = i + 3;
-        }
+            if (indexB !== -1) {
+                // ---------- พบใน B ----------
+                // → ต้องเขียนข้อมูลลง C ด้วย
+                writeRow = indexB + 1;  // แถวเดียวกับ B
+                console.log(`พบชื่อในคอลัมน์ B ที่แถว ${writeRow}`);
+            } 
+            else if (indexC !== -1) {
+                // ---------- พบใน C ----------
+                writeRow = indexC + 1;
+                console.log(`พบชื่อในคอลัมน์ C ที่แถว ${writeRow}`);
+            } 
+            else {
+                // ---------- ไม่พบทั้ง B และ C ----------
+                // → ให้เพิ่มใน C อย่างเดียว (ไม่แตะ B)
+                writeRow = colC.length + 1;
+                console.log(`ไม่พบชื่อ เพิ่มใหม่ที่ C แถว ${writeRow}`);
 
-        // เงื่อนไข 2: B มีชื่ออยู่ในข้อความ เช่น
-        // "00 [FTPD] Baigapow MooKrob"
-        if (!foundIndex && colB.includes(lower)) {
-            foundIndex = i + 3;
-        }
-    });
-
-    return foundIndex;
-}
-
-
-// ========================================================================
-// Save / Update Database
-// B = Tag+Name, C = Pure Name, D = วัน, E = เวลาออกงาน
-// ========================================================================
-async function saveLog(name, date, time) {
-    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
-    const sheetName = "logtime";
-
-    const auth = getSheetsClient();
-    if (!auth) return;
-
-    await auth.authorize();
-    const sheets = google.sheets({ version: "v4", auth });
-
-    const row = await findRowByName(sheets, spreadsheetId, sheetName, name);
-
-    if (row) {
-        // อัปเดตเฉพาะคอลัมน์ D & E
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!D${row}:E${row}`,
-            valueInputOption: "USER_ENTERED",
-            resource: { values: [[date, time]] },
-        });
-
-        console.log(`🔄 Updated row ${row} →`, name, date, time);
-    } else {
-        // ถ้าไม่เจอ → เพิ่มแถวใหม่ (เติม B,C,D,E)
-        await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: `${sheetName}!B3`,
-            valueInputOption: "USER_ENTERED",
-            resource: {
-                values: [[`FTPD ${name}`, name, date, time]]
+                await sheets.spreadsheets.values.update({
+                    spreadsheetId,
+                    range: `${sheetName}!C${writeRow}`,
+                    valueInputOption: "USER_ENTERED",
+                    resource: { values: [[name]] }
+                });
             }
-        });
 
-        console.log("➕ Added NEW row →", name, date, time);
-    }
-}
+            // ======== 4) เพิ่มข้อมูล Description ลงช่อง D (หรือช่องอื่นตามต้องการ) ========
+            const logTime = description;
 
+            await sheets.spreadsheets.values.update({
+                spreadsheetId,
+                range: `${sheetName}!D${writeRow}`,
+                valueInputOption: "USER_ENTERED",
+                resource: { values: [[logTime]] }
+            });
 
-// ========================================================================
-// 🧠 ULTRA-LIGHT PARSER (ดึงเฉพาะ “เวลาออกงาน” แบบแม่น)
-// ========================================================================
-function extractMinimal(text) {
-    text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
+            console.log("บันทึกข้อมูลสำเร็จ");
 
-    // 1️⃣ NAME
-    const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
-    const name = n ? n[1].trim() : null;
-
-    // 2️⃣ Date/Time หลังคำว่า “เวลาออกงาน”
-    const out = text.match(
-        /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
-    );
-
-    const date = out ? out[1] : null;
-    const time = out ? out[2] : null;
-
-    return { name, date, time };
-}
-
-
-// ========================================================================
-// Discord Log Listener
-// ========================================================================
-function initializeLogListener(client) {
-    const LOG_CHANNEL = "1445640443986710548";
-
-    client.on("messageCreate", async message => {
-        if (message.channel.id !== LOG_CHANNEL) return;
-
-        console.log("\n📥 NEW MESSAGE RECEIVED");
-
-        let text = "";
-
-        if (message.content) text += message.content + "\n";
-
-        if (message.embeds?.length > 0) {
-            for (const embed of message.embeds) {
-                const e = embed.data ?? embed;
-
-                if (e.title) text += e.title + "\n";
-                if (e.description) text += e.description + "\n";
-
-                if (e.fields) {
-                    for (const f of e.fields) {
-                        if (!f) continue;
-                        text += `${f.name}\n${f.value}\n`;
-                    }
-                }
-            }
+        } catch (err) {
+            console.error("ERROR LogTime:", err);
         }
-
-        // 🎯 Extract ONLY what needed
-        const { name, date, time } = extractMinimal(text);
-
-        if (!name) return console.log("❌ NAME NOT FOUND");
-        if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
-
-        console.log("🟩 NAME:", name);
-        console.log("🟩 Date/Time:", date, time);
-
-        // 📝 Save to Google Sheet
-        await saveLog(name, date, time);
-
-        console.log("✔ FINISHED:", name, date, time);
     });
-}
-
-module.exports = { initializeLogListener };
+};
