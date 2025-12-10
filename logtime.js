@@ -1,101 +1,168 @@
-// LogTime.js (เวอร์ชันแก้สมบูรณ์)
-// คอยอ่านข้อมูลจาก Log และเขียนลง Google Sheets
+const { google } = require("googleapis");
+const { JWT } = require("google-auth-library");
 
-function initializeLogListener(client, sheets) {
-    const channelId = "1445640443986710548"; // ห้องที่อ่าน log
 
-    // ---------------------------
-    // ฟังก์ชันมาตรฐานสำหรับล้างชื่อ
-    // ---------------------------
-    function normalizeName(str) {
-        return str
-            .toLowerCase()
-            .replace(/\d+/g, "")           // ลบเลขนำหน้า เช่น 00 01
-            .replace(/\[.*?\]/g, "")       // ลบ [FTPD]
-            .replace(/\s+/g, " ")          // ลบช่องเกิน
-            .trim();
+// ========================================================================
+// Google Sheets Client
+// ========================================================================
+function getSheetsClient() {
+    const privateKey = process.env.PRIVATE_KEY
+        ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n")
+        : null;
+
+    if (!process.env.CLIENT_EMAIL || !privateKey) {
+        console.log("❌ Missing GOOGLE ENV");
+        return null;
     }
 
-    // ---------------------------
-    // ฟังก์ชันแปลงเวลา
-    // ---------------------------
-    function parseThaiDate(text) {
-        // ตัวอย่าง:
-        // "พฤหัสบดี - 04/12/2025 22:46:43"
-        try {
-            const parts = text.split("-")[1].trim();
-            const [date, time] = parts.split(" ");
-            const [d, m, y] = date.split("/").map(x => parseInt(x));
-            return new Date(`${y}-${m}-${d} ${time}`);
-        } catch (e) {
-            return null;
+    return new JWT({
+        email: process.env.CLIENT_EMAIL,
+        key: privateKey,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+}
+
+
+// ========================================================================
+// 🔍 ค้นหาแถวจากชื่อ (แบบใหม่: เช็คทั้ง C และ B)
+// ========================================================================
+async function findRowByName(sheets, spreadsheetId, sheetName, name) {
+    const range = `${sheetName}!B3:C`;
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+
+    const rows = res.data.values || [];
+    const lower = name.trim().toLowerCase();
+
+    let foundIndex = null;
+
+    rows.forEach((row, i) => {
+        const colB = row[0] ? row[0].toLowerCase() : "";
+        const colC = row[1] ? row[1].toLowerCase() : "";
+
+        // เงื่อนไข 1: C = ชื่อเป๊ะ
+        if (colC === lower) {
+            foundIndex = i + 3;
         }
-    }
 
-    // ---------------------------
-    // อ่านข้อความจาก Discord
-    // ---------------------------
-    client.on("messageCreate", async (message) => {
-        if (message.channel.id !== channelId) return;
-        if (!message.embeds.length) return;
+        // เงื่อนไข 2: B มีชื่ออยู่ในข้อความ เช่น
+        // "00 [FTPD] Baigapow MooKrob"
+        if (!foundIndex && colB.includes(lower)) {
+            foundIndex = i + 3;
+        }
+    });
 
-        const embed = message.embeds[0];
+    return foundIndex;
+}
 
-        const playerName = embed.title?.trim() || "";       // ชื่อ เช่น Baigapow Mookrob
-        const timeText = embed.description?.trim() || "";   // เวลาแบบไทย
-        const action = embed.fields?.[0]?.value || "";      // "เข้าเวร" หรือ "ออกเวร"
 
-        if (!playerName || !timeText) return;
+// ========================================================================
+// Save / Update Database
+// B = Tag+Name, C = Pure Name, D = วัน, E = เวลาออกงาน
+// ========================================================================
+async function saveLog(name, date, time) {
+    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
+    const sheetName = "logtime";
 
-        const eventTime = parseThaiDate(timeText);
-        if (!eventTime) return;
+    const auth = getSheetsClient();
+    if (!auth) return;
 
-        console.log("✨ LOG:", playerName, action, eventTime);
+    await auth.authorize();
+    const sheets = google.sheets({ version: "v4", auth });
 
-        // โหลดชีต
-        const sheet = await sheets.sheetsByTitle["รายชื่อตำรวจ (FTPD)"];
-        const rows = await sheet.getRows({ offset: 2 });
+    const row = await findRowByName(sheets, spreadsheetId, sheetName, name);
 
-        const normName = normalizeName(playerName);
-
-        // ---------------------------
-        // 🔍 ค้นหาชื่อใน B แบบ normalize
-        // ---------------------------
-        const target = rows.find(r => {
-            const raw = r["รายชื่อตำรวจ"] ?? "";
-            const cleaned = normalizeName(raw);
-            return cleaned.includes(normName);
+    if (row) {
+        // อัปเดตเฉพาะคอลัมน์ D & E
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!D${row}:E${row}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[date, time]] },
         });
 
-        if (!target) {
-            console.log("❌ หาแถวไม่เจอใน Sheet:", playerName);
-            return;
+        console.log(`🔄 Updated row ${row} →`, name, date, time);
+    } else {
+        // ถ้าไม่เจอ → เพิ่มแถวใหม่ (เติม B,C,D,E)
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: `${sheetName}!B3`,
+            valueInputOption: "USER_ENTERED",
+            resource: {
+                values: [[`FTPD ${name}`, name, date, time]]
+            }
+        });
+
+        console.log("➕ Added NEW row →", name, date, time);
+    }
+}
+
+
+// ========================================================================
+// 🧠 ULTRA-LIGHT PARSER (ดึงเฉพาะ “เวลาออกงาน” แบบแม่น)
+// ========================================================================
+function extractMinimal(text) {
+    text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
+
+    // 1️⃣ NAME
+    const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
+    const name = n ? n[1].trim() : null;
+
+    // 2️⃣ Date/Time หลังคำว่า “เวลาออกงาน”
+    const out = text.match(
+        /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
+    );
+
+    const date = out ? out[1] : null;
+    const time = out ? out[2] : null;
+
+    return { name, date, time };
+}
+
+
+// ========================================================================
+// Discord Log Listener
+// ========================================================================
+function initializeLogListener(client) {
+    const LOG_CHANNEL = "1445640443986710548";
+
+    client.on("messageCreate", async message => {
+        if (message.channel.id !== LOG_CHANNEL) return;
+
+        console.log("\n📥 NEW MESSAGE RECEIVED");
+
+        let text = "";
+
+        if (message.content) text += message.content + "\n";
+
+        if (message.embeds?.length > 0) {
+            for (const embed of message.embeds) {
+                const e = embed.data ?? embed;
+
+                if (e.title) text += e.title + "\n";
+                if (e.description) text += e.description + "\n";
+
+                if (e.fields) {
+                    for (const f of e.fields) {
+                        if (!f) continue;
+                        text += `${f.name}\n${f.value}\n`;
+                    }
+                }
+            }
         }
 
-        // ---------------------------
-        // ✏ เติมชื่อในคอลัมน์ C ถ้ายังว่าง
-        // ---------------------------
-        if (!target["ชื่อ"] || target["ชื่อ"].trim() === "") {
-            target["ชื่อ"] = playerName;
-        }
+        // 🎯 Extract ONLY what needed
+        const { name, date, time } = extractMinimal(text);
 
-        // ---------------------------
-        // บันทึกเวลาเข้า–ออกเวร
-        // ---------------------------
-        if (action.includes("เข้า")) {
-            target["ออกเวรล่าสุด"] = "-";
-            target["เวลา"] = new Date(eventTime);
-            target["ไม่เข้าเวร"] = "";
-            target["เข้า-ไม่เข้า"] = "เข้า";
-        }
+        if (!name) return console.log("❌ NAME NOT FOUND");
+        if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
 
-        if (action.includes("ออก")) {
-            target["ออกเวรล่าสุด"] = new Date(eventTime);
-            target["เข้า-ไม่เข้า"] = "ออก";
-        }
+        console.log("🟩 NAME:", name);
+        console.log("🟩 Date/Time:", date, time);
 
-        await target.save();
-        console.log("✅ บันทึกสำเร็จ:", playerName);
+        // 📝 Save to Google Sheet
+        await saveLog(name, date, time);
+
+        console.log("✔ FINISHED:", name, date, time);
     });
 }
 
