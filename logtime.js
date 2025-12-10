@@ -106,11 +106,10 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
 }
 
 
-
 // ========================================================================
-// SAVE OR UPDATE LOG
+// SAVE OR UPDATE LOG (แก้ไข: รับ 'id' และเพิ่มบันทึกใน G)
 // ========================================================================
-async function saveLog(name, date, time) {
+async function saveLog(name, date, time, id) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
 
@@ -147,14 +146,23 @@ async function saveLog(name, date, time) {
         valueInputOption: "USER_ENTERED",
         resource: { values: [[date, time]] },
     });
+    
+    // บันทึก ID ลงใน G
+    if (id) {
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!G${row}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[id]] },
+        });
+    }
 
-    console.log(`✔ Saved @ Row ${row} →`, name, date, time);
+    console.log(`✔ Saved @ Row ${row} →`, name, date, time, id ? `[ID: ${id}]` : '');
 }
 
 
-
 // ========================================================================
-// EXTRACT MINIMAL (ชื่อ + วัน + เวลา)
+// EXTRACT MINIMAL (แก้ไข: เพิ่มการดึง ID)
 // ========================================================================
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
@@ -171,13 +179,16 @@ function extractMinimal(text) {
     const date = out ? out[1] : null;
     const time = out ? out[2] : null;
 
-    return { name, date, time };
+    // 3) ID (เพิ่มส่วนนี้)
+    const idMatch = text.match(/(steam:\w+)/i);
+    const id = idMatch ? idMatch[1] : null;
+
+    return { name, date, time, id };
 }
 
 
-
 // ========================================================================
-// DISCORD LOG LISTENER
+// DISCORD LOG LISTENER (แก้ไข: รับ 'id' และส่งต่อไปยัง saveLog)
 // ========================================================================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
@@ -210,16 +221,17 @@ function initializeLogListener(client) {
         }
 
         // Extract
-        const { name, date, time } = extractMinimal(text);
+        const { name, date, time, id } = extractMinimal(text);
 
         if (!name) return console.log("❌ NAME NOT FOUND");
         if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
 
         console.log("🟩 NAME:", name);
         console.log("🟩 TIME:", date, time);
+        if (id) console.log("🟩 ID:", id); // แสดง ID ใน Log
 
         // Save → Sheets
-        await saveLog(name, date, time);
+        await saveLog(name, date, time, id);
 
         console.log("✔ DONE");
     });
