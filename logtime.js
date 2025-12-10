@@ -15,32 +15,35 @@ function md5(buffer) {
 }
 
 // ========================================================================
-// Download Image
+// Download Image (optimized retry)
 // ========================================================================
 async function downloadImage(url) {
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     try {
       const res = await axios.get(url, { responseType: "arraybuffer" });
       return Buffer.from(res.data);
     } catch (err) {
-      await sleep(400);
+      await sleep(250);
     }
   }
   return null;
 }
 
 // ========================================================================
-// Get Image Hash (MD5 + Perceptual Hash)
+// Get Image Hash (optimized)
 // ========================================================================
 async function getImageHash(buffer) {
   return new Promise((resolve) => {
-    imageHash({ data: buffer, bits: 16 }, (err, perceptual) => {
-      if (err) return resolve(null);
-      resolve({
-        md5: md5(buffer),
-        perceptual,
-      });
-    });
+    imageHash(
+      { data: buffer, bits: 16, algorithm: "blockhash" },
+      (err, perceptual) => {
+        if (err) return resolve(null);
+        resolve({
+          md5: md5(buffer),
+          perceptual,
+        });
+      }
+    );
   });
 }
 
@@ -63,47 +66,39 @@ function getSheetsClient() {
 const SPREADSHEET_ID = process.env.SHEET_ID;
 
 // ========================================================================
-// Write Result to Google Sheet
+// Write Result to Google Sheet (optimized)
 // ========================================================================
 async function writeToSheet(name, hash, steamIdFull) {
   try {
     const sheets = getSheetsClient();
 
+    // โหลดเฉพาะคอลัมน์ C (ประหยัด API + เร็ว)
     const read = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: "DATA!B:H",
+      range: "DATA!C:C",
     });
 
-    const rows = read.data.values || [];
-
-    let foundC = false;
+    const colC = read.data.values || [];
 
     // ------------------------------------------------------------
     // 1) ถ้าเจอชื่อใน C → ไม่ทำอะไร
     // ------------------------------------------------------------
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i][1] === name) {
-        foundC = true;
-        break;
-      }
-    }
-
-    if (foundC) return { status: "exists" };
+    const found = colC.findIndex((row) => row[0] === name);
+    if (found !== -1) return { status: "exists" };
 
     // ------------------------------------------------------------
-    // 2) หาแถวว่างจาก B (แต่ "ไม่แตะ B")
-    //    แล้วเขียนข้อมูลใหม่ลง C / D / E / H
+    // 2) ไม่เจอ → เพิ่มแถวใหม่ (เขียนเฉพาะ C/D/E/H)
+    //    B = เว้นว่าง (ตามกติกา “ห้ามแตะ B”)
     // ------------------------------------------------------------
-    let targetRow = rows.length + 1; // ถัดจากสุดท้าย
+    const targetRow = colC.length + 1; // row index + header alignment
 
     const values = [[
-      "",              // B (ห้ามแตะ)
-      name,            // C
-      new Date().toLocaleDateString("th-TH"), // D
-      new Date().toLocaleTimeString("th-TH"), // E
-      "",              // F (ไม่ใช้งาน)
-      "",              // G (ไม่ใช้งาน)
-      steamIdFull      // H – เซฟ steam:xxxxxxxxx
+      "",                                        // B (ห้ามแตะ)
+      name,                                      // C
+      new Date().toLocaleDateString("th-TH"),    // D
+      new Date().toLocaleTimeString("th-TH"),    // E
+      "", "",                                    // F, G (ไม่ใช้)
+      steamIdFull                                // H
     ]];
 
     await sheets.spreadsheets.values.update({
@@ -114,9 +109,9 @@ async function writeToSheet(name, hash, steamIdFull) {
     });
 
     return { status: "saved" };
-
   } catch (err) {
     error("writeToSheet", err.message);
+    return { error: err.message };
   }
 }
 
