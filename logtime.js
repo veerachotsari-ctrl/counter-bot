@@ -26,18 +26,20 @@ function getSheetsClient() {
 
 
 // ========================================================================
-// ค้นหาแถวแบบ SMART:
+// ค้นหาแถวแบบ SMART (ฉบับแก้ไข Step 3)
 //
 // 1) หาใน B (B3:B)
 // 2) ไม่เจอ → หาใน C (C3:C)
-// 3) ไม่เจอ → หาแถวว่างใน B (แต่เขียนเฉพาะ C/D/E เท่านั้น)
-// 4) ถ้า B ไม่มีแถวว่าง → append แถวใหม่ (เขียน C/D/E เท่านั้น)
+// 3) ไม่เจอ → หาแถวว่างใน B *และ* C (เพื่อป้องกันการเขียนทับชื่อใน C)
+// 4) ถ้า B+C ไม่มีแถวว่าง → append แถวใหม่ (เขียน C/D/E เท่านั้น)
 //
 // ❗ ห้ามแตะ B เด็ดขาด
 // ========================================================================
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
 
-    // ----- STEP 1: หาใน B -----
+    // ------------------------------------
+    // ----- STEP 1: หาใน B (B3:B) -----
+    // ------------------------------------
     const respB = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `${sheetName}!B3:B`
@@ -49,11 +51,14 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     );
 
     if (rowIndexB !== -1) {
+        // พบชื่อใน B → ส่งคืนหมายเลขแถว
         return rowIndexB + 3;
     }
 
 
-    // ----- STEP 2: หาใน C -----
+    // ------------------------------------
+    // ----- STEP 2: หาใน C (C3:C) -----
+    // ------------------------------------
     const respC = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `${sheetName}!C3:C`
@@ -66,21 +71,37 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     );
 
     if (rowIndexC !== -1) {
+        // พบชื่อใน C → ส่งคืนหมายเลขแถว
         return rowIndexC + 3;
     }
 
 
-    // ----- STEP 3: หาแถวว่างใน B -----
-    const emptyRowInB = rowsB.findIndex(row =>
-        !row[0] || row[0].trim() === ""
-    );
+    // ------------------------------------
+    // ----- STEP 3: หาแถวว่างใน B และ C -----
+    // (B ว่าง และ C ว่าง เพื่อให้เป็นแถวที่ใช้ได้จริง ไม่เขียนทับข้อมูล)
+    // ------------------------------------
+    const emptyRowIndex = rowsB.findIndex((rowB, index) => {
+        const rowC = rowsC[index] || []; // ป้องกัน rowsC สั้นกว่า rowsB
+        
+        // B ต้องว่าง
+        const bIsEmpty = !rowB[0] || rowB[0].trim() === "";
+        
+        // C ต้องว่าง
+        const cIsEmpty = !rowC[0] || rowC[0].trim() === "";
+        
+        // ใช้แถวนี้ได้เมื่อ B และ C ว่างพร้อมกัน
+        return bIsEmpty && cIsEmpty;
+    });
 
-    if (emptyRowInB !== -1) {
-        return emptyRowInB + 3;
+    if (emptyRowIndex !== -1) {
+        // พบแถวว่างที่ B และ C ว่าง → ส่งคืนหมายเลขแถว
+        return emptyRowIndex + 3;
     }
 
 
-    // ----- STEP 4: ถ้าไม่มีแถวว่าง → append -----
+    // ------------------------------------
+    // ----- STEP 4: ถ้าไม่มีแถวว่าง → append แถวใหม่ -----
+    // ------------------------------------
     return rowsB.length + 3;
 }
 
