@@ -25,18 +25,11 @@ function getSheetsClient() {
 
 
 // ========================================================================
-// ค้นหาแถวแบบ SMART:
-//
-// 1) หาใน B (B3:B)
-// 2) ไม่เจอ → หาใน C (C3:C)
-// 3) ไม่เจอ → หาแถวว่างใน B (แต่เขียนเฉพาะ C/D/E เท่านั้น)
-// 4) ถ้า B ไม่มีแถวว่าง → append แถวใหม่ (เขียน C/D/E เท่านั้น)
-//
-// ❗ ห้ามแตะ B เด็ดขาด
+// SMART ROW FINDER (ห้ามแตะ B)
 // ========================================================================
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
 
-    // ----- STEP 1: หาใน B -----
+    // STEP 1: หาใน B
     const respB = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `${sheetName}!B3:B`
@@ -46,13 +39,9 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const rowIndexB = rowsB.findIndex(row =>
         row[0] && row[0].toLowerCase().includes(name.toLowerCase())
     );
+    if (rowIndexB !== -1) return rowIndexB + 3;
 
-    if (rowIndexB !== -1) {
-        return rowIndexB + 3;
-    }
-
-
-    // ----- STEP 2: หาใน C -----
+    // STEP 2: หาใน C
     const respC = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `${sheetName}!C3:C`
@@ -63,32 +52,24 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
         row[0] &&
         row[0].trim().toLowerCase() === name.trim().toLowerCase()
     );
+    if (rowIndexC !== -1) return rowIndexC + 3;
 
-    if (rowIndexC !== -1) {
-        return rowIndexC + 3;
-    }
-
-
-    // ----- STEP 3: หาแถวว่างใน B -----
+    // STEP 3: หาแถวว่างใน B
     const emptyRowInB = rowsB.findIndex(row =>
         !row[0] || row[0].trim() === ""
     );
+    if (emptyRowInB !== -1) return emptyRowInB + 3;
 
-    if (emptyRowInB !== -1) {
-        return emptyRowInB + 3;
-    }
-
-
-    // ----- STEP 4: ถ้าไม่มีแถวว่าง → append -----
+    // STEP 4: append แถวใหม่
     return rowsB.length + 3;
 }
 
 
 
 // ========================================================================
-// SAVE OR UPDATE LOG
+// SAVE OR UPDATE LOG  (เพิ่ม Steam ลง H)
 // ========================================================================
-async function saveLog(name, date, time) {
+async function saveLog(name, date, time, steamId) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
 
@@ -100,15 +81,14 @@ async function saveLog(name, date, time) {
 
     const row = await findRowSmart(sheets, spreadsheetId, sheetName, name);
 
-    // อ่านค่าช่อง C เพื่อตรวจว่ามีชื่ออยู่แล้วหรือยัง
+    // ตรวจ C ว่ามีชื่ออยู่หรือยัง
     const checkC = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `${sheetName}!C${row}`
     });
     const existsC = checkC.data.values && checkC.data.values[0];
 
-
-    // ถ้า C ยังไม่มีชื่อ → ใส่ชื่อใหม่ลง C
+    // ถ้ายังไม่มีชื่อ → ใส่ชื่อใน C
     if (!existsC) {
         await sheets.spreadsheets.values.update({
             spreadsheetId,
@@ -118,7 +98,7 @@ async function saveLog(name, date, time) {
         });
     }
 
-    // อัปเดตวันที่/เวลา D + E
+    // อัปเดตวันที่ + เวลา → D, E
     await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `${sheetName}!D${row}:E${row}`,
@@ -126,13 +106,23 @@ async function saveLog(name, date, time) {
         resource: { values: [[date, time]] },
     });
 
-    console.log(`✔ Saved @ Row ${row} →`, name, date, time);
+    // อัปเดต Steam ID → H
+    if (steamId) {
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!H${row}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[steamId]] },
+        });
+    }
+
+    console.log(`✔ Saved @ Row ${row} →`, name, date, time, steamId);
 }
 
 
 
 // ========================================================================
-// EXTRACT MINIMAL (ชื่อ + วัน + เวลา)
+// EXTRACT MINIMAL (ชื่อ + วัน + เวลา + STEAM)
 // ========================================================================
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
@@ -141,15 +131,18 @@ function extractMinimal(text) {
     const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
 
-    // 2) DATE + TIME (หลังคำว่าเวลาออกงาน)
+    // 2) DATE + TIME หลังคำว่า "เวลาออกงาน"
     const out = text.match(
         /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
     );
-
     const date = out ? out[1] : null;
     const time = out ? out[2] : null;
 
-    return { name, date, time };
+    // 3) STEAM ID เช่น steam:11000010xxxxxxx
+    const idMatch = text.match(/steam:(\w+)/i);
+    const steamId = idMatch ? idMatch[1] : null;
+
+    return { name, date, time, steamId };
 }
 
 
@@ -188,16 +181,17 @@ function initializeLogListener(client) {
         }
 
         // Extract
-        const { name, date, time } = extractMinimal(text);
+        const { name, date, time, steamId } = extractMinimal(text);
 
         if (!name) return console.log("❌ NAME NOT FOUND");
         if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
 
         console.log("🟩 NAME:", name);
         console.log("🟩 TIME:", date, time);
+        console.log("🟩 STEAM:", steamId);
 
         // Save → Sheets
-        await saveLog(name, date, time);
+        await saveLog(name, date, time, steamId);
 
         console.log("✔ DONE");
     });
