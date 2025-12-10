@@ -9,7 +9,7 @@
 
 module.exports = (client, sheets) => {
     const channelId = "1445640443986710548";
-    const spreadsheetId = "YOUR_SPREADSHEET_ID"; // <== ใส่ของจริง
+    const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM"; // <== ใส่ของจริง
 
     client.on("messageCreate", async (message) => {
         if (message.channel.id !== channelId) return;
