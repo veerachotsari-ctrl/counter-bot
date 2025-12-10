@@ -26,68 +26,59 @@ function getSheetsClient() {
 
 
 // ========================================================================
-// ค้นหาแถวแบบ SMART (ฉบับแก้ไข Step 3)
+// ค้นหาแถวแบบ SMART (ปรับปรุงประสิทธิภาพ: รวมการอ่าน API)
 //
-// 1) หาใน B (B3:B)
-// 2) ไม่เจอ → หาใน C (C3:C)
-// 3) ไม่เจอ → หาแถวว่างใน B *และ* C (เพื่อป้องกันการเขียนทับชื่อใน C)
-// 4) ถ้า B+C ไม่มีแถวว่าง → append แถวใหม่ (เขียน C/D/E เท่านั้น)
-//
-// ❗ ห้ามแตะ B เด็ดขาด
+// ลดการเรียก API get จาก 2 ครั้ง เหลือ 1 ครั้ง
 // ========================================================================
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
 
     // ------------------------------------
+    // ----- รวมการอ่าน B และ C ในครั้งเดียว (B3:C) -----
+    // ------------------------------------
+    const range = `${sheetName}!B3:C`;
+    const resp = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: range
+    });
+    
+    const rowData = resp.data.values || []; // rowData = [[B3, C3], [B4, C4], ...]
+    const lowerCaseName = name.trim().toLowerCase();
+
+    // ------------------------------------
     // ----- STEP 1: หาใน B (B3:B) -----
     // ------------------------------------
-    const respB = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!B3:B`
-    });
-    const rowsB = respB.data.values || [];
-
-    const rowIndexB = rowsB.findIndex(row =>
-        row[0] && row[0].toLowerCase().includes(name.toLowerCase())
+    // row[0] คือคอลัมน์ B
+    let rowIndex = rowData.findIndex(row => 
+        row[0] && row[0].toLowerCase().includes(lowerCaseName)
     );
 
-    if (rowIndexB !== -1) {
+    if (rowIndex !== -1) {
         // พบชื่อใน B → ส่งคืนหมายเลขแถว
-        return rowIndexB + 3;
+        return rowIndex + 3;
     }
 
 
     // ------------------------------------
     // ----- STEP 2: หาใน C (C3:C) -----
     // ------------------------------------
-    const respC = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!C3:C`
-    });
-    const rowsC = respC.data.values || [];
-
-    const rowIndexC = rowsC.findIndex(row =>
-        row[0] &&
-        row[0].trim().toLowerCase() === name.trim().toLowerCase()
+    // row[1] คือคอลัมน์ C
+    rowIndex = rowData.findIndex(row => 
+        row[1] && row[1].trim().toLowerCase() === lowerCaseName
     );
 
-    if (rowIndexC !== -1) {
+    if (rowIndex !== -1) {
         // พบชื่อใน C → ส่งคืนหมายเลขแถว
-        return rowIndexC + 3;
+        return rowIndex + 3;
     }
 
 
     // ------------------------------------
     // ----- STEP 3: หาแถวว่างใน B และ C -----
-    // (B ว่าง และ C ว่าง เพื่อให้เป็นแถวที่ใช้ได้จริง ไม่เขียนทับข้อมูล)
     // ------------------------------------
-    const emptyRowIndex = rowsB.findIndex((rowB, index) => {
-        const rowC = rowsC[index] || []; // ป้องกัน rowsC สั้นกว่า rowsB
-        
-        // B ต้องว่าง
-        const bIsEmpty = !rowB[0] || rowB[0].trim() === "";
-        
-        // C ต้องว่าง
-        const cIsEmpty = !rowC[0] || rowC[0].trim() === "";
+    const emptyRowIndex = rowData.findIndex(row => {
+        // row[0] คือ B, row[1] คือ C
+        const bIsEmpty = !row[0] || row[0].trim() === "";
+        const cIsEmpty = !row[1] || row[1].trim() === "";
         
         // ใช้แถวนี้ได้เมื่อ B และ C ว่างพร้อมกัน
         return bIsEmpty && cIsEmpty;
@@ -102,7 +93,7 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     // ------------------------------------
     // ----- STEP 4: ถ้าไม่มีแถวว่าง → append แถวใหม่ -----
     // ------------------------------------
-    return rowsB.length + 3;
+    return rowData.length + 3;
 }
 
 
@@ -119,6 +110,7 @@ async function saveLog(name, date, time, id) {
     await auth.authorize();
     const sheets = google.sheets({ version: "v4", auth });
 
+    // ประสิทธิภาพดีขึ้นเพราะ findRowSmart เรียก API น้อยลง
     const row = await findRowSmart(sheets, spreadsheetId, sheetName, name);
 
     // อ่านค่าช่อง C เพื่อตรวจว่ามีชื่ออยู่แล้วหรือยัง
