@@ -1,7 +1,6 @@
 const { google } = require("googleapis");
 const { JWT } = require("google-auth-library");
 
-
 // ========================================================================
 // Google Sheets Client
 // ========================================================================
@@ -22,43 +21,26 @@ function getSheetsClient() {
     });
 }
 
-
 // ========================================================================
-// 🔍 ค้นหาแถวจากช่อง B (ชื่อเต็ม)
+// 🔍 ค้นหาชื่อในคอลัมน์ไหนก็ได้ (B หรือ C)
 // ========================================================================
-async function findRowByFullName(sheets, spreadsheetId, sheetName, fullName) {
-    const range = `${sheetName}!B3:B`;
+async function findRowInColumn(sheets, spreadsheetId, sheetName, column, name) {
+    const range = `${sheetName}!${column}3:${column}`;
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const rows = response.data.values || [];
 
-    const index = rows.findIndex(row =>
-        row[0] && row[0].trim().toLowerCase() === fullName.trim().toLowerCase()
+    const idx = rows.findIndex(
+        row => row[0] && row[0].trim().toLowerCase() === name.trim().toLowerCase()
     );
 
-    return index === -1 ? null : index + 3;
+    return idx === -1 ? null : idx + 3;
 }
-
-
-// ========================================================================
-// 🔍 ค้นหาแถวจากช่อง C (ชื่อย่อที่บอทดึงมา)
-// ========================================================================
-async function findRowByShortName(sheets, spreadsheetId, sheetName, shortName) {
-    const range = `${sheetName}!C3:C`;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-    const rows = response.data.values || [];
-
-    const index = rows.findIndex(row =>
-        row[0] && row[0].trim().toLowerCase() === shortName.trim().toLowerCase()
-    );
-
-    return index === -1 ? null : index + 3;
-}
-
 
 // ========================================================================
 // Save or Update
+// C = ชื่อ, D = วันที่, E = เวลา
 // ========================================================================
-async function saveLog(shortName, date, time) {
+async function saveLog(name, date, time) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
     const sheetName = "logtime";
 
@@ -68,80 +50,63 @@ async function saveLog(shortName, date, time) {
     await auth.authorize();
     const sheets = google.sheets({ version: "v4", auth });
 
-    // เตรียมชื่อเต็มจากข้อความ log
-    // เช่น "Baigapow Mookrob" หาใน B ที่มีชื่อ "00 [FTPD] Baigapow MooKrob"
-    const fullNameRegex = new RegExp(shortName.replace(/\s+/g, ".*"), "i");
+    // 1️⃣ หาชื่อใน C ก่อน
+    let rowC = await findRowInColumn(sheets, spreadsheetId, sheetName, "C", name);
 
-    // อ่านช่อง B ทั้งหมด
-    const colB = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!B3:B`
-    });
-
-    const rowsB = colB.data.values || [];
-
-    let rowInB = null;
-
-    for (let i = 0; i < rowsB.length; i++) {
-        if (rowsB[i][0] && fullNameRegex.test(rowsB[i][0])) {
-            rowInB = i + 3;
-            break;
-        }
+    // 2️⃣ ถ้าไม่เจอ C → ไปหาที่ B
+    let rowB = null;
+    if (!rowC) {
+        rowB = await findRowInColumn(sheets, spreadsheetId, sheetName, "B", name);
     }
 
-
-    // 1️⃣ ถ้าพบในช่อง B → อัปเดตช่อง C, D, E
-    if (rowInB) {
+    // 3️⃣ ถ้าเจอใน C → อัปเดตข้อมูลใน D,E
+    if (rowC) {
         await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `${sheetName}!C${rowInB}:E${rowInB}`,
-            valueInputOption: "USER_ENTERED",
-            resource: { values: [[shortName, date, time]] },
-        });
-
-        console.log(`🔄 Updated via B → Row ${rowInB} | ${shortName}`);
-        return;
-    }
-
-
-    // 2️⃣ ถ้าไม่เจอใน B → หาช่อง C
-    const rowInC = await findRowByShortName(sheets, spreadsheetId, sheetName, shortName);
-
-    if (rowInC) {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!D${rowInC}:E${rowInC}`,
+            range: `${sheetName}!D${rowC}:E${rowC}`,
             valueInputOption: "USER_ENTERED",
             resource: { values: [[date, time]] },
         });
 
-        console.log(`🔄 Updated via C → Row ${rowInC}`);
+        console.log(`🔄 Updated row (C matched) ${rowC} →`, name, date, time);
         return;
     }
 
+    // 4️⃣ ถ้าเจอใน B → เติมชื่อเข้า C และเขียนข้อมูล
+    if (rowB) {
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!C${rowB}:E${rowB}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[name, date, time]] },
+        });
 
-    // 3️⃣ ไม่เจอทั้ง B และ C → เพิ่มเฉพาะ C, D, E
+        console.log(`🟦 Found in B → Filled at C row ${rowB}`);
+        return;
+    }
+
+    // 5️⃣ ถ้าไม่เจอทั้ง B และ C → เพิ่มแถวใหม่ (เริ่มที่ C)
     await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `${sheetName}!C3`,
-        valueInputOption: "USER_INPUT",
-        resource: { values: [[shortName, date, time]] },
+        valueInputOption: "USER_ENTERED",
+        resource: { values: [[name, date, time]] },
     });
 
-    console.log("➕ Added new row →", shortName, date, time);
+    console.log("🟩 Added NEW row →", name, date, time);
 }
 
-
-
 // ========================================================================
-// PARSER
+// Ultra-Light Parser
 // ========================================================================
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
 
+    // ชื่อ
     const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
 
+    // Date + Time หลัง "เวลาออกงาน"
     const out = text.match(
         /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
     );
@@ -152,10 +117,8 @@ function extractMinimal(text) {
     return { name, date, time };
 }
 
-
-
 // ========================================================================
-// DISCORD Listener
+// Discord Listener
 // ========================================================================
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
