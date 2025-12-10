@@ -22,7 +22,7 @@ function getSheetsClient() {
 }
 
 // ========================================================================
-// 🔍 ดึงค่าทั้งคอลัมน์
+// อ่านคอลัมน์
 // ========================================================================
 async function getColumnValues(sheets, spreadsheetId, sheetName, col) {
     const range = `${sheetName}!${col}3:${col}`;
@@ -31,12 +31,10 @@ async function getColumnValues(sheets, spreadsheetId, sheetName, col) {
 }
 
 // ========================================================================
-// 🔍 หาในคอลัมน์ B ก่อน
-// B = "00 [FTPD] Baigapow Mookrob"
-// เทียบกับชื่อจริงจาก Log = "Baigapow Mookrob"
+// แยกชื่อจริงจากคอลัมน์ B เช่น
+// "00 [FTPD] Baigapow Mookrob" → "baigapow mookrob"
 // ========================================================================
 function extractRealNameFromB(text) {
-    // ตัดเลขนำหน้า + tag เช่น [FTPD]
     return text
         .replace(/^\d+\s*\[[^\]]+\]\s*/i, "")
         .trim()
@@ -45,7 +43,6 @@ function extractRealNameFromB(text) {
 
 // ========================================================================
 // Save or Update
-// C = ชื่อ, D = วันที่, E = เวลา
 // ========================================================================
 async function saveLog(name, date, time) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
@@ -57,28 +54,26 @@ async function saveLog(name, date, time) {
     await auth.authorize();
     const sheets = google.sheets({ version: "v4", auth });
 
-    // 1) เตรียมข้อมูล
     const nameLower = name.trim().toLowerCase();
 
-    // 2) โหลดคอลัมน์ B และ C
+    // โหลด B และ C
     const colB = await getColumnValues(sheets, spreadsheetId, sheetName, "B");
     const colC = await getColumnValues(sheets, spreadsheetId, sheetName, "C");
 
     let foundRowB = null;
     let foundRowC = null;
 
-    // 3) 🔍 หาใน B ก่อน
+    // 1️⃣ ค้นหาใน B (แค่ค้น — ไม่แตะต้อง B)
     colB.forEach((row, i) => {
         const cell = row[0];
         if (!cell) return;
 
-        const cleaned = extractRealNameFromB(cell);
-        if (cleaned === nameLower) {
-            foundRowB = i + 3; // row number
+        if (extractRealNameFromB(cell) === nameLower) {
+            foundRowB = i + 3;
         }
     });
 
-    // 4) ถ้าไม่เจอใน B → หาใน C
+    // 2️⃣ ถ้าไม่เจอใน B → หาใน C
     if (!foundRowB) {
         colC.forEach((row, i) => {
             const cell = row[0];
@@ -91,7 +86,7 @@ async function saveLog(name, date, time) {
     }
 
     // ====================================================================
-    // เคส 1️⃣ เจอใน B → เขียนชื่อใน C + วันที่ + เวลา
+    // 🟦 เคส 1: เจอใน B → เขียนเฉพาะช่อง C, D, E (ไม่ยุ่ง B)
     // ====================================================================
     if (foundRowB) {
         await sheets.spreadsheets.values.update({
@@ -101,12 +96,12 @@ async function saveLog(name, date, time) {
             resource: { values: [[name, date, time]] },
         });
 
-        console.log(`🟦 Match in B → Wrote name into C row ${foundRowB}`);
+        console.log(`🟦 FOUND IN B → Write only C,D,E at row ${foundRowB}`);
         return;
     }
 
     // ====================================================================
-    // เคส 2️⃣ เจอใน C → อัปเดตวันที่ + เวลาอย่างเดียว
+    // 🟩 เคส 2: เจอใน C → อัปเดต D, E
     // ====================================================================
     if (foundRowC) {
         await sheets.spreadsheets.values.update({
@@ -116,12 +111,12 @@ async function saveLog(name, date, time) {
             resource: { values: [[date, time]] },
         });
 
-        console.log(`🔄 Updated existing C row ${foundRowC}`);
+        console.log(`🔄 FOUND IN C → Update D,E at row ${foundRowC}`);
         return;
     }
 
     // ====================================================================
-    // เคส 3️⃣ ไม่เจอทั้ง B และ C → เพิ่มแถวใหม่ใน C
+    // 🟧 เคส 3: ไม่เจอทั้ง B และ C → เพิ่มเฉพาะ C,D,E
     // ====================================================================
     await sheets.spreadsheets.values.append({
         spreadsheetId,
@@ -130,11 +125,11 @@ async function saveLog(name, date, time) {
         resource: { values: [[name, date, time]] },
     });
 
-    console.log("🟩 Added NEW entry:", name);
+    console.log("🟩 NEW ENTRY ADDED → C,D,E only");
 }
 
 // ========================================================================
-// Ultra-Light Parser
+// Light Parser
 // ========================================================================
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
