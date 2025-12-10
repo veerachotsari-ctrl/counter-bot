@@ -22,18 +22,25 @@ function getSheetsClient() {
 }
 
 // ========================================================================
-// 🔍 ค้นหาชื่อในคอลัมน์ไหนก็ได้ (B หรือ C)
+// 🔍 ดึงค่าทั้งคอลัมน์
 // ========================================================================
-async function findRowInColumn(sheets, spreadsheetId, sheetName, column, name) {
-    const range = `${sheetName}!${column}3:${column}`;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-    const rows = response.data.values || [];
+async function getColumnValues(sheets, spreadsheetId, sheetName, col) {
+    const range = `${sheetName}!${col}3:${col}`;
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+    return res.data.values || [];
+}
 
-    const idx = rows.findIndex(
-        row => row[0] && row[0].trim().toLowerCase() === name.trim().toLowerCase()
-    );
-
-    return idx === -1 ? null : idx + 3;
+// ========================================================================
+// 🔍 หาในคอลัมน์ B ก่อน
+// B = "00 [FTPD] Baigapow Mookrob"
+// เทียบกับชื่อจริงจาก Log = "Baigapow Mookrob"
+// ========================================================================
+function extractRealNameFromB(text) {
+    // ตัดเลขนำหน้า + tag เช่น [FTPD]
+    return text
+        .replace(/^\d+\s*\[[^\]]+\]\s*/i, "")
+        .trim()
+        .toLowerCase();
 }
 
 // ========================================================================
@@ -50,42 +57,72 @@ async function saveLog(name, date, time) {
     await auth.authorize();
     const sheets = google.sheets({ version: "v4", auth });
 
-    // 1️⃣ หาชื่อใน C ก่อน
-    let rowC = await findRowInColumn(sheets, spreadsheetId, sheetName, "C", name);
+    // 1) เตรียมข้อมูล
+    const nameLower = name.trim().toLowerCase();
 
-    // 2️⃣ ถ้าไม่เจอ C → ไปหาที่ B
-    let rowB = null;
-    if (!rowC) {
-        rowB = await findRowInColumn(sheets, spreadsheetId, sheetName, "B", name);
-    }
+    // 2) โหลดคอลัมน์ B และ C
+    const colB = await getColumnValues(sheets, spreadsheetId, sheetName, "B");
+    const colC = await getColumnValues(sheets, spreadsheetId, sheetName, "C");
 
-    // 3️⃣ ถ้าเจอใน C → อัปเดตข้อมูลใน D,E
-    if (rowC) {
-        await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!D${rowC}:E${rowC}`,
-            valueInputOption: "USER_ENTERED",
-            resource: { values: [[date, time]] },
+    let foundRowB = null;
+    let foundRowC = null;
+
+    // 3) 🔍 หาใน B ก่อน
+    colB.forEach((row, i) => {
+        const cell = row[0];
+        if (!cell) return;
+
+        const cleaned = extractRealNameFromB(cell);
+        if (cleaned === nameLower) {
+            foundRowB = i + 3; // row number
+        }
+    });
+
+    // 4) ถ้าไม่เจอใน B → หาใน C
+    if (!foundRowB) {
+        colC.forEach((row, i) => {
+            const cell = row[0];
+            if (!cell) return;
+
+            if (cell.trim().toLowerCase() === nameLower) {
+                foundRowC = i + 3;
+            }
         });
-
-        console.log(`🔄 Updated row (C matched) ${rowC} →`, name, date, time);
-        return;
     }
 
-    // 4️⃣ ถ้าเจอใน B → เติมชื่อเข้า C และเขียนข้อมูล
-    if (rowB) {
+    // ====================================================================
+    // เคส 1️⃣ เจอใน B → เขียนชื่อใน C + วันที่ + เวลา
+    // ====================================================================
+    if (foundRowB) {
         await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `${sheetName}!C${rowB}:E${rowB}`,
+            range: `${sheetName}!C${foundRowB}:E${foundRowB}`,
             valueInputOption: "USER_ENTERED",
             resource: { values: [[name, date, time]] },
         });
 
-        console.log(`🟦 Found in B → Filled at C row ${rowB}`);
+        console.log(`🟦 Match in B → Wrote name into C row ${foundRowB}`);
         return;
     }
 
-    // 5️⃣ ถ้าไม่เจอทั้ง B และ C → เพิ่มแถวใหม่ (เริ่มที่ C)
+    // ====================================================================
+    // เคส 2️⃣ เจอใน C → อัปเดตวันที่ + เวลาอย่างเดียว
+    // ====================================================================
+    if (foundRowC) {
+        await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `${sheetName}!D${foundRowC}:E${foundRowC}`,
+            valueInputOption: "USER_ENTERED",
+            resource: { values: [[date, time]] },
+        });
+
+        console.log(`🔄 Updated existing C row ${foundRowC}`);
+        return;
+    }
+
+    // ====================================================================
+    // เคส 3️⃣ ไม่เจอทั้ง B และ C → เพิ่มแถวใหม่ใน C
+    // ====================================================================
     await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `${sheetName}!C3`,
@@ -93,7 +130,7 @@ async function saveLog(name, date, time) {
         resource: { values: [[name, date, time]] },
     });
 
-    console.log("🟩 Added NEW row →", name, date, time);
+    console.log("🟩 Added NEW entry:", name);
 }
 
 // ========================================================================
@@ -102,19 +139,18 @@ async function saveLog(name, date, time) {
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
 
-    // ชื่อ
     const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
 
-    // Date + Time หลัง "เวลาออกงาน"
     const out = text.match(
         /เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i
     );
 
-    const date = out ? out[1] : null;
-    const time = out ? out[2] : null;
-
-    return { name, date, time };
+    return {
+        name,
+        date: out ? out[1] : null,
+        time: out ? out[2] : null,
+    };
 }
 
 // ========================================================================
@@ -125,8 +161,6 @@ function initializeLogListener(client) {
 
     client.on("messageCreate", async message => {
         if (message.channel.id !== LOG_CHANNEL) return;
-
-        console.log("\n📥 NEW MESSAGE");
 
         let text = "";
 
@@ -141,7 +175,6 @@ function initializeLogListener(client) {
 
                 if (e.fields) {
                     for (const f of e.fields) {
-                        if (!f) continue;
                         text += `${f.name}\n${f.value}\n`;
                     }
                 }
@@ -153,8 +186,7 @@ function initializeLogListener(client) {
         if (!name) return console.log("❌ NAME NOT FOUND");
         if (!date || !time) return console.log("❌ DATE/TIME NOT FOUND");
 
-        console.log("🟩 NAME:", name);
-        console.log("🟩 Date/Time:", date, time);
+        console.log("📥 Parsed:", name, date, time);
 
         await saveLog(name, date, time);
 
