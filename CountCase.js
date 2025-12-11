@@ -367,9 +367,9 @@ function getStartCountMessage() {
 
     const channelList = validChannelIds.map((id, index) => {
         let label = `- <#${id}> (Channel ${index + 1}:`;
-        if (index === 0) label += ' C:Mentions)';
-        else if (index === 1) label += ' D:Mentions, E:Author)';
-        else if (index === 2) label += ' F:Mentions)';
+        if (index === 0) label += ' C : เทค 2)';
+        else if (index === 1) label += ' D:คดีปกติ, E:คนทำคดี)';
+        else if (index === 2) label += ' F:คุมสอบ)';
         return label;
     }).join('\n') || '- ยังไม่มีช่องสำหรับการนับ -';
 
@@ -479,7 +479,7 @@ function initializeCountCase(client, commandChannelId) {
 
                 const channelListInput = new TextInputBuilder()
                     .setCustomId('channel_list_input')
-                    .setLabel(`Channel IDs (คั่นด้วย ,) - สูงสุด 3 ช่อง`) 
+                    .setLabel(`Channel IDs (คั่นด้วย ,) เทค2,คดีปกติ,คุมสอบ`) 
                     .setStyle(TextInputStyle.Paragraph)
                     .setRequired(false)
                     .setValue(CONFIG.CHANNEL_IDS?.join(', ') || '');
