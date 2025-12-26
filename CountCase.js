@@ -27,7 +27,7 @@ const auth = new JWT({
 const gsapi = google.sheets({ version: "v4", auth });
 
 // --- ตั้งค่าจำนวนช่องและคอลัมน์ ---
-const MAX_CHANNELS = 4; 
+const MAX_CHANNELS = 5; 
 const STARTING_ROW = 4;
 const COL_INDEX = {
     C: 2, // ช่อง 1 (Mentions)
