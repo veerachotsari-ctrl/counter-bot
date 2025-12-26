@@ -320,8 +320,8 @@ function getStartCountMessage() {
         let label = `- <#${id}> (Channel ${index + 1}:`;
         if (index === 0) label += ' C : เทค 2)';
         else if (index === 1) label += ' D:คดีปกติ, E:คนทำคดี)';
-        else if (index === 2) label += ' F:คุมสอบ)';
-        else if (index === 3) label += ' G:ช่องที่ 4)'; // เพิ่มการแสดงผลช่องที่ 4
+        else if (index === 2) label += ' F:รถยอด)';
+        else if (index === 3) label += ' G:คุมสอบ)';
         return label;
     }).join('\n') || '- ยังไม่มีช่องสำหรับการนับ -';
 
