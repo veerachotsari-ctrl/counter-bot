@@ -46,6 +46,7 @@ const COL_INDEX = {
     D: 3, // Channel 2 Mentions
     E: 4, // Channel 2 Author
     F: 5, // Channel 3 Mentions
+    G: 6, // Channel 4 Mentions
 };
 const COUNT_COLS = Object.keys(COL_INDEX).length; // 4 คอลัมน์ (C, D, E, F)
 
