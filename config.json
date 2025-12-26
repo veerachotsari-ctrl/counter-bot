@@ -2,9 +2,10 @@
     "SPREADSHEET_ID": "1QnXWv7QIh4QdaeNcMR6sybUMt9Sd3vzmU6Id6Fz8UiQ",
     "SHEET_NAME": "test",
     "CHANNEL_IDS": [
-        "123",
-        "123",
-        "123"
+        "ID_ช่องที่_1",
+        "ID_ช่องที่_2",
+        "ID_ช่องที่_3",
+        "ID_ช่องที่_4" 
     ],
     "BATCH_DELAY": 150,
     "UPDATE_DELAY": 50 
