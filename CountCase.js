@@ -33,7 +33,7 @@ const auth = new JWT({
 const gsapi = google.sheets({ version: "v4", auth });
 
 // รองรับ 4 คอลัมน์สถิติ (C, D, E, F)
-const MAX_CHANNELS = 4;
+const MAX_CHANNELS = 5;
 let CONFIG = {};
 const CONFIG_FILE = "config.json";
 const COUNT_BUTTON_ID = "start_historical_count";
