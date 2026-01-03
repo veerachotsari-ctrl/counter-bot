@@ -56,25 +56,28 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const rowData = resp.data.values || []; 
     const lowerCaseName = (name || "").trim().toLowerCase();
 
-    // STEP 1: ค้นหาในคอลัมน์ B (โซนรายชื่อหลัก) - เริ่มหาตั้งแต่แถว 3
-    let rowIndex = rowData.findIndex((r, idx) => idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName));
-    if (rowIndex !== -1) {
-        return { row: rowIndex + 1, cValue: (rowData[rowIndex][1] || "").toString(), isNew: false };
+    // STEP 1: ค้นหาในคอลัมน์ B (เริ่มแถว 3)
+    let rowIndexB = rowData.findIndex((r, idx) => idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName));
+    if (rowIndexB !== -1) {
+        return { row: rowIndexB + 1, cValue: (rowData[rowIndexB][1] || "").toString(), isNew: false };
     }
 
-    // STEP 2: ค้นหาในคอลัมน์ C (โซนแถว 200+) เพื่อดูว่าเคยบันทึกไว้หรือยัง
-    // ป้องกันการลงชื่อซ้ำสำหรับคนที่ไม่มีชื่อในช่อง B
-    const START_ROW = 200;
-    let existingNewUserIndex = rowData.findIndex((r, idx) => idx >= START_ROW - 1 && r[1] && r[1].trim().toLowerCase() === lowerCaseName);
+    // STEP 2: ค้นหาในคอลัมน์ C (เปลี่ยนเป็นเริ่มตั้งแต่แถว 3 ตามที่คุณต้องการ)
+    const SEARCH_START_ROW = 3; // เริ่มหาชื่อซ้ำใน C ตั้งแต่แถวที่ 3
+    let existingNewUserIndex = rowData.findIndex((r, idx) => 
+        idx >= SEARCH_START_ROW - 1 && r[1] && r[1].trim().toLowerCase() === lowerCaseName
+    );
     
     if (existingNewUserIndex !== -1) {
-        // ถ้าเจอชื่อเดิมที่เคยลงไว้แล้วในโซน 200+ ให้ใช้แถวเดิม
+        // ถ้าเจอชื่อเดิมที่เคยลงไว้แล้ว (ไม่ว่าจะอยู่แถวไหนตั้งแต่แถว 3) ให้ใช้แถวเดิม
         return { row: existingNewUserIndex + 1, cValue: (rowData[existingNewUserIndex][1] || "").toString(), isNew: false };
     }
 
-    // STEP 3: หากไม่เจอทั้งใน B และไม่เคยลงไว้ใน C (200+) ให้หาแถวว่างใหม่
-    let targetRow = START_ROW;
-    for (let i = START_ROW - 1; i < Math.max(rowData.length, START_ROW); i++) {
+    // STEP 3: หากไม่เจอทั้งใน B และ C ให้ไปเริ่มหาแถวว่างที่แถว 200 เป็นต้นไป
+    const NEW_ENTRY_START = 200; 
+    let targetRow = NEW_ENTRY_START;
+
+    for (let i = NEW_ENTRY_START - 1; i < Math.max(rowData.length, NEW_ENTRY_START); i++) {
         const row = rowData[i];
         if (!row || (!row[0] && !row[1])) {
             targetRow = i + 1;
