@@ -53,19 +53,27 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
         range,
     });
 
-    const rowData = resp.data.values || []; // [[B1,C1], [B2,C2], ...]
+    const rowData = resp.data.values || []; 
     const lowerCaseName = (name || "").trim().toLowerCase();
 
-    // STEP 1: search B (partial contains) - เริ่มหาตั้งแต่แถว 3
+    // STEP 1: ค้นหาในคอลัมน์ B (โซนรายชื่อหลัก) - เริ่มหาตั้งแต่แถว 3
     let rowIndex = rowData.findIndex((r, idx) => idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName));
     if (rowIndex !== -1) {
         return { row: rowIndex + 1, cValue: (rowData[rowIndex][1] || "").toString(), isNew: false };
     }
 
-    // STEP 2: หากไม่เจอใน B ให้เริ่มหาแถวว่างตั้งแต่แถว 200 เป็นต้นไป
+    // STEP 2: ค้นหาในคอลัมน์ C (โซนแถว 200+) เพื่อดูว่าเคยบันทึกไว้หรือยัง
+    // ป้องกันการลงชื่อซ้ำสำหรับคนที่ไม่มีชื่อในช่อง B
     const START_ROW = 200;
-    let targetRow = START_ROW;
+    let existingNewUserIndex = rowData.findIndex((r, idx) => idx >= START_ROW - 1 && r[1] && r[1].trim().toLowerCase() === lowerCaseName);
+    
+    if (existingNewUserIndex !== -1) {
+        // ถ้าเจอชื่อเดิมที่เคยลงไว้แล้วในโซน 200+ ให้ใช้แถวเดิม
+        return { row: existingNewUserIndex + 1, cValue: (rowData[existingNewUserIndex][1] || "").toString(), isNew: false };
+    }
 
+    // STEP 3: หากไม่เจอทั้งใน B และไม่เคยลงไว้ใน C (200+) ให้หาแถวว่างใหม่
+    let targetRow = START_ROW;
     for (let i = START_ROW - 1; i < Math.max(rowData.length, START_ROW); i++) {
         const row = rowData[i];
         if (!row || (!row[0] && !row[1])) {
