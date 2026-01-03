@@ -44,43 +44,40 @@ async function getSheetsClientCached() {
 }
 
 // -----------------------------
-// SMART row finder (reads B3:C once)
-// returns { row, cValue, rowsCount }
+// SMART row finder (แก้ไข: สแกน B ถ้าไม่เจอเริ่มแถว 200)
 // -----------------------------
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
-    const range = `${sheetName}!B3:C`;
+    const range = `${sheetName}!B:C`;
     const resp = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range,
     });
 
-    const rowData = resp.data.values || []; // [[B3,C3], [B4,C4], ...]
+    const rowData = resp.data.values || []; // [[B1,C1], [B2,C2], ...]
     const lowerCaseName = (name || "").trim().toLowerCase();
 
-    // STEP 1: search B (partial contains)
-    let rowIndex = rowData.findIndex(r => r[0] && r[0].toLowerCase().includes(lowerCaseName));
+    // STEP 1: search B (partial contains) - เริ่มหาตั้งแต่แถว 3
+    let rowIndex = rowData.findIndex((r, idx) => idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName));
     if (rowIndex !== -1) {
-        return { row: rowIndex + 3, cValue: (rowData[rowIndex][1] || "").toString(), rowsCount: rowData.length };
+        return { row: rowIndex + 1, cValue: (rowData[rowIndex][1] || "").toString(), isNew: false };
     }
 
-    // STEP 2: search C (exact match)
-    rowIndex = rowData.findIndex(r => r[1] && r[1].trim().toLowerCase() === lowerCaseName);
-    if (rowIndex !== -1) {
-        return { row: rowIndex + 3, cValue: (rowData[rowIndex][1] || "").toString(), rowsCount: rowData.length };
+    // STEP 2: หากไม่เจอใน B ให้เริ่มหาแถวว่างตั้งแต่แถว 200 เป็นต้นไป
+    const START_ROW = 200;
+    let targetRow = START_ROW;
+
+    for (let i = START_ROW - 1; i < Math.max(rowData.length, START_ROW); i++) {
+        const row = rowData[i];
+        if (!row || (!row[0] && !row[1])) {
+            targetRow = i + 1;
+            break;
+        }
+        if (i === rowData.length - 1) {
+            targetRow = rowData.length + 1;
+        }
     }
 
-    // STEP 3: find empty row where both B and C empty
-    const emptyRowIndex = rowData.findIndex(r => {
-        const bIsEmpty = !r[0] || r[0].trim() === "";
-        const cIsEmpty = !r[1] || r[1].trim() === "";
-        return bIsEmpty && cIsEmpty;
-    });
-    if (emptyRowIndex !== -1) {
-        return { row: emptyRowIndex + 3, cValue: "", rowsCount: rowData.length };
-    }
-
-    // STEP 4: append at end (next row after last returned row)
-    return { row: rowData.length + 3, cValue: "", rowsCount: rowData.length };
+    return { row: targetRow, cValue: "", isNew: true };
 }
 
 // -----------------------------
@@ -120,15 +117,15 @@ async function saveLog(name, date, time, id) {
     const sheets = google.sheets({ version: "v4", auth });
 
     // Find row and existing C value in single read
-    const { row, cValue } = await findRowSmart(sheets, spreadsheetId, sheetName, name);
+    const { row, cValue, isNew } = await findRowSmart(sheets, spreadsheetId, sheetName, name);
 
     // Prepare batch updates (only produce the same cells that original did)
     const data = [];
     const valueInputOption = "USER_ENTERED";
 
-    // If C empty → set C = name (original logic: only update C when it was empty)
+    // If C empty or isNew → set C = name
     const cExists = !!(cValue && cValue.toString().trim() !== "");
-    if (!cExists) {
+    if (!cExists || isNew) {
         data.push({
             range: `${sheetName}!C${row}`,
             values: [[name]],
