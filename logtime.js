@@ -37,24 +37,13 @@ async function getSheetsClientCached() {
         scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
-    // Authorize once and cache the client (tokens are managed internally)
     await client.authorize();
     _cachedAuthClient = client;
     return _cachedAuthClient;
 }
 
 // -----------------------------
-// SMART row finder (แก้ไข: สแกน B ถ้าไม่เจอเริ่มแถว 200)
-// -----------------------------
-หากต้องการให้โค้ดทำงานตาม Logic 3 ชั้น (หาใน B -> หาใน C -> ถ้าไม่เจอเลยไปเริ่มที่ 200) เพื่อป้องกันการลงซ้ำในกรณีที่ชื่ออยู่ที่แถว 207 คุณต้องแก้ไขฟังก์ชัน findRowSmart เพียงจุดเดียวครับ
-
-จุดที่ต้องแก้ไข (ฟังก์ชัน findRowSmart)
-ให้นำโค้ดส่วนนี้ไปวางทับอันเดิมได้เลยครับ:
-
-JavaScript
-
-// -----------------------------
-// SMART row finder (Logic: หา B -> ถ้าไม่เจอหา C -> ถ้าไม่เจอไป 200)
+// SMART row finder (Logic: หา B -> หาใน C -> ถ้าไม่เจอไป 200)
 // -----------------------------
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const range = `${sheetName}!B:C`;
@@ -74,14 +63,12 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
         return { row: rowIndexB + 1, cValue: (rowData[rowIndexB][1] || "").toString(), isNew: false };
     }
 
-    // ชั้นที่ 2: ถ้าไม่เจอใน B ให้สแกนหาในคอลัมน์ C ทั้งหมด (ตั้งแต่แถว 3 จนถึงแถวสุดท้ายของชีต)
-    // ตรงนี้จะทำให้เจอแถว 207 หรือแถวไหนก็ตามที่มีชื่ออยู่แล้ว
+    // ชั้นที่ 2: ถ้าไม่เจอใน B ให้สแกนหาในคอลัมน์ C ทั้งหมด (ตั้งแต่แถว 3 จนถึงแถวสุดท้าย)
     let rowIndexC = rowData.findIndex((r, idx) => 
         idx >= 2 && r[1] && r[1].trim().toLowerCase() === lowerCaseName
     );
     
     if (rowIndexC !== -1) {
-        // ถ้าเจอชื่อในช่อง C ให้เลือกแถวนั้นทันที ไม่ไป Step 3
         return { row: rowIndexC + 1, cValue: (rowData[rowIndexC][1] || "").toString(), isNew: false };
     }
 
@@ -105,21 +92,17 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
 
 // -----------------------------
 // Extract minimal info (name, date, time, id)
-// identical behavior to original
 // -----------------------------
 function extractMinimal(text) {
     text = text.replace(/`/g, "").replace(/\*/g, "").replace(/\u200B/g, "");
 
-    // NAME
     const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
 
-    // DATE + TIME (after 'เวลาออกงาน')
     const out = text.match(/เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i);
     const date = out ? out[1] : null;
     const time = out ? out[2] : null;
 
-    // ID (steam:xxxx)
     const idMatch = text.match(/(steam:\w+)/i);
     const id = idMatch ? idMatch[1] : null;
 
@@ -127,8 +110,7 @@ function extractMinimal(text) {
 }
 
 // -----------------------------
-// SAVE OR UPDATE LOG (optimized: use batchUpdate, reuse auth)
-// Behavior preserved exactly
+// SAVE OR UPDATE LOG
 // -----------------------------
 async function saveLog(name, date, time, id) {
     const spreadsheetId = "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
@@ -139,14 +121,11 @@ async function saveLog(name, date, time, id) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    // Find row and existing C value in single read
     const { row, cValue, isNew } = await findRowSmart(sheets, spreadsheetId, sheetName, name);
 
-    // Prepare batch updates (only produce the same cells that original did)
     const data = [];
     const valueInputOption = "USER_ENTERED";
 
-    // If C empty or isNew → set C = name
     const cExists = !!(cValue && cValue.toString().trim() !== "");
     if (!cExists || isNew) {
         data.push({
@@ -155,13 +134,11 @@ async function saveLog(name, date, time, id) {
         });
     }
 
-    // Update D + E (always)
     data.push({
         range: `${sheetName}!D${row}:E${row}`,
         values: [[date, time]],
     });
 
-    // If id present → update G
     if (id) {
         data.push({
             range: `${sheetName}!G${row}`,
@@ -169,13 +146,11 @@ async function saveLog(name, date, time, id) {
         });
     }
 
-    // If nothing to update (shouldn't happen because D+E always present), skip
     if (data.length === 0) {
-        console.log("⚠ Nothing to update (unexpected).");
+        console.log("⚠ Nothing to update.");
         return;
     }
 
-    // Use batchUpdate to group updates into single API call
     await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,
         resource: {
@@ -189,28 +164,19 @@ async function saveLog(name, date, time, id) {
 
 // -----------------------------
 // Discord listener initializer
-// Uses process.nextTick to avoid blocking event loop
 // -----------------------------
 function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
 
     client.on("messageCreate", message => {
         if (message.channel.id !== LOG_CHANNEL) return;
-
-        // Defer actual heavy work to next tick (keeps bot responsive)
         process.nextTick(() => handleLog(message).catch(err => console.error("❌ handleLog error:", err)));
     });
 
-    // Extract + save handler
     async function handleLog(message) {
         console.log("\n📥 NEW MESSAGE IN LOG CHANNEL");
-
         const lines = [];
-
-        // message content
         if (message.content) lines.push(message.content);
-
-        // embeds
         if (message.embeds?.length > 0) {
             for (const embed of message.embeds) {
                 const e = embed.data ?? embed;
@@ -227,8 +193,6 @@ function initializeLogListener(client) {
         }
 
         const text = lines.join("\n");
-
-        // Extract
         const { name, date, time, id } = extractMinimal(text);
 
         if (!name) return console.log("❌ NAME NOT FOUND");
@@ -238,9 +202,7 @@ function initializeLogListener(client) {
         console.log("🟩 TIME:", date, time);
         if (id) console.log("🟩 ID:", id);
 
-        // Save → Sheets
         await saveLog(name, date, time, id);
-
         console.log("✔ DONE");
     }
 }
