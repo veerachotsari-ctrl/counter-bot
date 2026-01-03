@@ -46,6 +46,16 @@ async function getSheetsClientCached() {
 // -----------------------------
 // SMART row finder (แก้ไข: สแกน B ถ้าไม่เจอเริ่มแถว 200)
 // -----------------------------
+หากต้องการให้โค้ดทำงานตาม Logic 3 ชั้น (หาใน B -> หาใน C -> ถ้าไม่เจอเลยไปเริ่มที่ 200) เพื่อป้องกันการลงซ้ำในกรณีที่ชื่ออยู่ที่แถว 207 คุณต้องแก้ไขฟังก์ชัน findRowSmart เพียงจุดเดียวครับ
+
+จุดที่ต้องแก้ไข (ฟังก์ชัน findRowSmart)
+ให้นำโค้ดส่วนนี้ไปวางทับอันเดิมได้เลยครับ:
+
+JavaScript
+
+// -----------------------------
+// SMART row finder (Logic: หา B -> ถ้าไม่เจอหา C -> ถ้าไม่เจอไป 200)
+// -----------------------------
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const range = `${sheetName}!B:C`;
     const resp = await sheets.spreadsheets.values.get({
@@ -56,28 +66,30 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const rowData = resp.data.values || []; 
     const lowerCaseName = (name || "").trim().toLowerCase();
 
-    // STEP 1: ค้นหาในคอลัมน์ B (เริ่มแถว 3)
-    let rowIndexB = rowData.findIndex((r, idx) => idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName));
+    // ชั้นที่ 1: ค้นหาในคอลัมน์ B ตั้งแต่แถว 3 ลงไป (รายชื่อหลัก)
+    let rowIndexB = rowData.findIndex((r, idx) => 
+        idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName)
+    );
     if (rowIndexB !== -1) {
         return { row: rowIndexB + 1, cValue: (rowData[rowIndexB][1] || "").toString(), isNew: false };
     }
 
-    // STEP 2: ค้นหาในคอลัมน์ C (เปลี่ยนเป็นเริ่มตั้งแต่แถว 3 ตามที่คุณต้องการ)
-    const SEARCH_START_ROW = 3; // เริ่มหาชื่อซ้ำใน C ตั้งแต่แถวที่ 3
-    let existingNewUserIndex = rowData.findIndex((r, idx) => 
-        idx >= SEARCH_START_ROW - 1 && r[1] && r[1].trim().toLowerCase() === lowerCaseName
+    // ชั้นที่ 2: ถ้าไม่เจอใน B ให้สแกนหาในคอลัมน์ C ทั้งหมด (ตั้งแต่แถว 3 จนถึงแถวสุดท้ายของชีต)
+    // ตรงนี้จะทำให้เจอแถว 207 หรือแถวไหนก็ตามที่มีชื่ออยู่แล้ว
+    let rowIndexC = rowData.findIndex((r, idx) => 
+        idx >= 2 && r[1] && r[1].trim().toLowerCase() === lowerCaseName
     );
     
-    if (existingNewUserIndex !== -1) {
-        // ถ้าเจอชื่อเดิมที่เคยลงไว้แล้ว (ไม่ว่าจะอยู่แถวไหนตั้งแต่แถว 3) ให้ใช้แถวเดิม
-        return { row: existingNewUserIndex + 1, cValue: (rowData[existingNewUserIndex][1] || "").toString(), isNew: false };
+    if (rowIndexC !== -1) {
+        // ถ้าเจอชื่อในช่อง C ให้เลือกแถวนั้นทันที ไม่ไป Step 3
+        return { row: rowIndexC + 1, cValue: (rowData[rowIndexC][1] || "").toString(), isNew: false };
     }
 
-    // STEP 3: หากไม่เจอทั้งใน B และ C ให้ไปเริ่มหาแถวว่างที่แถว 200 เป็นต้นไป
-    const NEW_ENTRY_START = 200; 
-    let targetRow = NEW_ENTRY_START;
+    // ชั้นที่ 3: ถ้าไม่เจอทั้งใน B และ C เลยจริงๆ ให้ไปหาแถวว่างที่เริ่มจากแถว 200
+    const START_ROW = 200;
+    let targetRow = START_ROW;
 
-    for (let i = NEW_ENTRY_START - 1; i < Math.max(rowData.length, NEW_ENTRY_START); i++) {
+    for (let i = START_ROW - 1; i < Math.max(rowData.length, START_ROW); i++) {
         const row = rowData[i];
         if (!row || (!row[0] && !row[1])) {
             targetRow = i + 1;
