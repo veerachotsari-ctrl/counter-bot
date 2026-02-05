@@ -60,7 +60,7 @@ client.on("interactionCreate", async interaction => {
 http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("✅ Discord Bot is alive and running!");
-}).listen(3000, () => console.log("🌐 Web server running on port 3000."));
+}).listen(3000, () => console.log("🌐 Web server running 5on port 3000."));
 
 const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
 
