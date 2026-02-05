@@ -87,4 +87,15 @@ http.createServer((req, res) => {
     res.end("✅ Discord Bot is alive and running!");
 }).listen(3000, () => console.log("🌐 Web server running on port 3000."));
 
-client.login(process.env.DISCORD_TOKEN || process.env.TOKEN);
+const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
+
+if (!token) {
+    console.error("❌ หา Token ไม่เจอ! เช็คชื่อใน Render Environment ด่วน");
+} else {
+    client.login(token)
+        .then(() => console.log("✅ [SUCCESS] บอทออนไลน์เรียบร้อยแล้ว!"))
+        .catch(err => {
+            console.error("❌ [LOGIN ERROR] เข้าสู่ระบบไม่ได้ เพราะ:");
+            console.error(err);
+        });
+}
