@@ -1,11 +1,19 @@
 require("dotenv").config();
 const fs = require("fs");
 const http = require("http");
-const { Client, GatewayIntentBits } = require("discord.js");
+const { 
+    Client, 
+    GatewayIntentBits, 
+    Events, 
+    REST, 
+    Routes, 
+    SlashCommandBuilder, 
+    PermissionFlagsBits 
+} = require("discord.js");
 
 // ⭐ โหลดโมดูล
 const { initializeWelcomeModule } = require('./welcome.js');
-const { initializeCountCase } = require('./CountCase.js');
+const { initializeCountCase, sendControlPanel } = require('./CountCase.js'); // ดึงฟังก์ชัน sendControlPanel มาด้วย
 const { saveLog, initializeLogListener } = require("./logtime.js"); 
 
 const COMMAND_CHANNEL_ID = '1433450340564340889';
@@ -20,58 +28,101 @@ const client = new Client({
 });
 
 // =========================================================
-// 🔍 ERROR & WARNING HANDLERS (ปิด DEBUG เพื่อความสะอาด)
+// 🚀 REGISTER SLASH COMMANDS
 // =========================================================
 
-// ปิด DEBUG ไปแล้วเพื่อให้ Log ไม่รก
-client.on("error", (error) => {
-    console.error("❌ [CLIENT ERROR]:", error.message);
-});
+const commands = [
+    // คำสั่ง /ออกเวร
+    new SlashCommandBuilder()
+        .setName('ออกเวร')
+        .setDescription('บันทึกเวลาออกเวรลง Google Sheets')
+        .addStringOption(option => 
+            option.setName('ชื่อ').setDescription('ชื่อของคุณ').setRequired(true))
+        .addStringOption(option => 
+            option.setName('เวลา').setDescription('ระบุเวลา (เช่น 18:00)').setRequired(true)),
+    
+    // คำสั่ง /gocc (สำหรับเรียกแผงควบคุมการนับเคส)
+    new SlashCommandBuilder()
+        .setName('gocc')
+        .setDescription('เรียกแผงควบคุมการนับเคส (Control Panel)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
-client.on("warn", (info) => {
-    console.warn("⚠️ [WARN]:", info);
-});
+    // คำสั่งสำหรับ Welcome Module (ถ้ามีใน welcome.js)
+    new SlashCommandBuilder()
+        .setName('welcome_status')
+        .setDescription('ตรวจสอบสถานะระบบต้อนรับ'),
+];
 
-client.on("shardDisconnect", (event) => {
-    console.error("🔌 [DISCONNECTED]: บอทถูกตัดการเชื่อมต่อ!");
-});
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN || process.env.TOKEN);
 
-client.on("shardReconnecting", () => {
-    console.log("🔄 [RECONNECTING]: กำลังพยายามเชื่อมต่อใหม่...");
-});
+async function registerCommands() {
+    try {
+        console.log('⏳ กำลังอัปเดต Slash Commands...');
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands },
+        );
+        console.log('✅ อัปเดต Slash Commands สำเร็จ!');
+    } catch (error) {
+        console.error('❌ เกิดข้อผิดพลาดในการ Register Commands:', error);
+    }
+}
 
 // =========================================================
-// ✨ คำสั่ง /ออกเวร
+// 🔍 ERROR & WARNING HANDLERS
 // =========================================================
 
-client.on("interactionCreate", async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+client.on("error", (error) => console.error("❌ [CLIENT ERROR]:", error.message));
+client.on("warn", (info) => console.warn("⚠️ [WARN]:", info));
+client.on("shardDisconnect", () => console.error("🔌 [DISCONNECTED]: บอทถูกตัดการเชื่อมต่อ!"));
+client.on("shardReconnecting", () => console.log("🔄 [RECONNECTING]: กำลังพยายามเชื่อมต่อใหม่..."));
 
-    if (interaction.commandName === "ออกเวร") {
-        const name = interaction.options.getString("ชื่อ");
-        const time = interaction.options.getString("เวลา");
+// =========================================================
+// ✨ INTERACTION HANDLER (จัดการคำสั่ง /)
+// =========================================================
 
-        await interaction.reply({
-            content: `⏳ กำลังบันทึกข้อมูลออกเวรของคุณ (${name})...`,
-            ephemeral: true
-        });
+client.on(Events.InteractionCreate, async interaction => {
+    // 1. จัดการ Slash Commands
+    if (interaction.isChatInputCommand()) {
+        const { commandName } = interaction;
 
-        try {
-            const ok = await saveLog(name, null, time, null); 
-            if (ok) {
-                await interaction.editReply(`✔ บันทึกแล้ว\n**ชื่อ:** ${name}\n**เวลา:** ${time}`);
-            } else {
-                await interaction.editReply("❌ บันทึกไม่สำเร็จ (Google Sheets ไม่ตอบสนอง)");
+        // --- คำสั่ง /ออกเวร ---
+        if (commandName === "ออกเวร") {
+            const name = interaction.options.getString("ชื่อ");
+            const time = interaction.options.getString("เวลา");
+
+            await interaction.reply({
+                content: `⏳ กำลังบันทึกข้อมูลออกเวรของคุณ (${name})...`,
+                ephemeral: true
+            });
+
+            try {
+                const ok = await saveLog(name, null, time, null); 
+                if (ok) {
+                    await interaction.editReply(`✔ บันทึกเรียบร้อยแล้ว\n**ชื่อ:** ${name}\n**เวลา:** ${time}`);
+                } else {
+                    await interaction.editReply("❌ บันทึกไม่สำเร็จ (Google Sheets ไม่ตอบสนอง)");
+                }
+            } catch (err) {
+                console.error("❌ Error in /ออกเวร:", err);
+                await interaction.editReply("❌ เกิดข้อผิดพลาดภายในระบบ");
             }
-        } catch (err) {
-            console.error("❌ Error in /ออกเวร:", err);
-            await interaction.editReply("❌ บันทึกไม่สำเร็จ: เกิดข้อผิดพลาดภายใน");
+        }
+
+        // --- คำสั่ง /gocc ---
+        if (commandName === "gocc") {
+            try {
+                await sendControlPanel(interaction);
+            } catch (err) {
+                console.error("❌ Error in /gocc:", err);
+                await interaction.reply({ content: "❌ ไม่สามารถส่งแผงควบคุมได้", ephemeral: true });
+            }
         }
     }
 });
 
 // =========================================================
-// 🌐 INITIALIZATION & KEEP ALIVE
+// 🌐 INITIALIZATION & LOGIN
 // =========================================================
 
 http.createServer((req, res) => {
@@ -82,30 +133,29 @@ http.createServer((req, res) => {
 const token = process.env.DISCORD_TOKEN || process.env.TOKEN;
 
 if (!token) {
-    console.error("❌ [CRITICAL] ไม่พบ Token! กรุณาเช็ค Environment Variables ใน Render");
+    console.error("❌ [CRITICAL] ไม่พบ Token ใน Environment Variables!");
 } else {
     console.log("🚀 กำลังเข้าสู่ระบบ Discord...");
 
     client.login(token)
         .then(() => {
-            console.log("✅ [SUCCESS] บอทออนไลน์เรียบร้อยแล้ว!");
-            console.log(`🤖 ออนไลน์ในชื่อ: ${client.user.tag}`);
+            console.log(`✅ [SUCCESS] บอทออนไลน์ในชื่อ: ${client.user.tag}`);
             
+            // ลงทะเบียนคำสั่ง Slash Commands
+            registerCommands();
+
             try {
+                // เริ่มทำงานโมดูลต่างๆ
                 initializeWelcomeModule(client);
                 initializeCountCase(client, COMMAND_CHANNEL_ID);
                 initializeLogListener(client);
-                console.log("📦 โหลดโมดูลเสริมสำเร็จ (Ready to Work)");
+                console.log("📦 โหลดโมดูลเสริมทั้งหมดสำเร็จ");
             } catch (modErr) {
                 console.error("❌ [MODULE ERROR]:", modErr);
             }
         })
         .catch(err => {
-            console.error("❌ [LOGIN ERROR]: เข้าสู่ระบบไม่สำเร็จ!");
-            if (err.message.includes("429")) {
-                console.error("🆘 IP โดน Rate Limit (ชั่วคราว)");
-            } else {
-                console.error("รายละเอียด:", err.message);
-            }
+            console.error("❌ [LOGIN ERROR]:", err.message);
+            if (err.message.includes("429")) console.error("🆘 โดน Rate Limit!");
         });
 }
