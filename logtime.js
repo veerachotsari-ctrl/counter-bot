@@ -1,33 +1,33 @@
 const { google } = require("googleapis");
-
-// ตั้งค่า Google Sheets (ใช้ค่าจาก .env)
-const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
-const sheets = google.sheets({ version: "v4", auth });
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const SHEET_NAME = "LogTime"; // เปลี่ยนให้ตรงกับชื่อ Sheet ของคุณ
+const { JWT } = require("google-auth-library");
+const https = require("https");
 
 // -----------------------------
-// saveLog (สำหรับคำสั่ง /ออกเวร)
+// Environment tweaks
 // -----------------------------
-async function saveLog(name, date, time, id) {
-    try {
-        const { row } = await findRowSmart(sheets, SPREADSHEET_ID, SHEET_NAME, name);
-        // เลือกบันทึกลงคอลัมน์ที่ต้องการ (ตัวอย่างคือบันทึกทับในแถวที่เจอ)
-        // คุณสามารถปรับแก้ Range [!A${row}] ตามโครงสร้าง Sheet ของคุณ
-        await sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `${SHEET_NAME}!D${row}:F${row}`, // บันทึกวันที่ เวลา ID ลงคอลัมน์ D, E, F
-            valueInputOption: "USER_ENTERED",
-            requestBody: { values: [[date || "ไมระบุ", time, id || "N/A"]] },
-        });
-        return true;
-    } catch (err) {
-        console.error("❌ saveLog Error:", err);
-        return false;
+process.env.GOOGLE_API_USE_MTLS_ENDPOINT = process.env.GOOGLE_API_USE_MTLS_ENDPOINT || "never";
+process.env.GOOGLE_CLOUD_DISABLE_SPDY = process.env.GOOGLE_CLOUD_DISABLE_SPDY || "1";
+
+const keepAliveAgent = new https.Agent({ keepAlive: true });
+google.options({ httpAgent: keepAliveAgent });
+
+let _cachedAuthClient = null;
+async function getSheetsClientCached() {
+    if (_cachedAuthClient) return _cachedAuthClient;
+    // ใช้ CLIENT_EMAIL และ PRIVATE_KEY จาก Environment Variables
+    const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, "\n") : null;
+    if (!process.env.CLIENT_EMAIL || !privateKey) {
+        console.log("❌ Missing GOOGLE ENV (CLIENT_EMAIL or PRIVATE_KEY)");
+        return null;
     }
+    const client = new JWT({
+        email: process.env.CLIENT_EMAIL,
+        key: privateKey,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+    await client.authorize();
+    _cachedAuthClient = client;
+    return _cachedAuthClient;
 }
 
 // -----------------------------
@@ -36,21 +36,26 @@ async function saveLog(name, date, time, id) {
 async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
     const range = `${sheetName}!B:C`;
     const resp = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-    const rowData = resp.data.values || [];
+    const rowData = resp.data.values || []; 
     const lowerCaseName = (name || "").trim().toLowerCase();
 
-    // ค้นจากคอลัมน์ B
-    let rowIndexB = rowData.findIndex((r, idx) =>
-        idx >= 1 && r[0] && r[0].toLowerCase().includes(lowerCaseName)
+    // ค้นหาจากคอลัมน์ B
+    let rowIndexB = rowData.findIndex((r, idx) => 
+        idx >= 2 && r[0] && r[0].toLowerCase().includes(lowerCaseName)
     );
-    if (rowIndexB !== -1) return { row: rowIndexB + 1, isNew: false };
+    if (rowIndexB !== -1) {
+        return { row: rowIndexB + 1, isNew: false };
+    }
 
-    // ค้นจากคอลัมน์ C
-    let rowIndexC = rowData.findIndex((r, idx) =>
-        idx >= 1 && r[1] && r[1].trim().toLowerCase() === lowerCaseName
+    // ค้นหาจากคอลัมน์ C
+    let rowIndexC = rowData.findIndex((r, idx) => 
+        idx >= 2 && r[1] && r[1].trim().toLowerCase() === lowerCaseName
     );
-    if (rowIndexC !== -1) return { row: rowIndexC + 1, isNew: false };
+    if (rowIndexC !== -1) {
+        return { row: rowIndexC + 1, isNew: false };
+    }
 
+    // หาแถวว่างเริ่มต้นที่ 200
     const START_ROW = 200;
     let targetRow = START_ROW;
     for (let i = START_ROW - 1; i < Math.max(rowData.length, START_ROW); i++) {
@@ -65,33 +70,63 @@ async function findRowSmart(sheets, spreadsheetId, sheetName, name) {
 }
 
 // -----------------------------
-// Extract Info (Regex)
+// Extract Info
 // -----------------------------
 function extractMinimal(text) {
+    // ลบ Markdown และตัวอักษรพิเศษ
     text = text.replace(/[`*]/g, "").replace(/\u200B/g, "");
-    const n = text.match(/รายงานเข้าเวรของ\s*[:\-–—]?\s*(.+)/i);
+
+    const n = text.match(/รายงานเข้าเวรของ\s*[-–—]\s*(.+)/i);
     const name = n ? n[1].trim() : null;
-    const out = text.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i);
+
+    const out = text.match(/เวลาออกงาน[\s\S]*?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})/i);
     const date = out ? out[1] : null;
     const time = out ? out[2] : null;
-    const idMatch = text.match(/steam:(\w+)/i);
-    const id = idMatch ? idMatch[0] : null;
+
+    const idMatch = text.match(/(steam:\w+)/i);
+    const id = idMatch ? idMatch[1] : null;
+
     return { name, date, time, id };
 }
 
 // -----------------------------
-// Handle Log (ประมวลผลข้อความ)
+// SAVE LOG (บันทึกเฉพาะข้อมูลพื้นฐาน)
 // -----------------------------
-async function handleLog(message) {
-    const info = extractMinimal(message.content);
-    if (!info.name) return; // ถ้าดึงชื่อไม่ได้ ไม่ต้องทำต่อ
+async function saveLog(name, date, time, id) {
+    const spreadsheetId = process.env.SPREADSHEET_ID || "1GIgLq2Pr0Omne6QH64a_K2Iw2Po8FVjRqnltlw-a5zM";
+    const sheetName = "logtime";
 
-    console.log(`📝 กำลังบันทึก Log ของ: ${info.name}`);
-    const success = await saveLog(info.name, info.date, info.time, info.id);
-    if (success) {
-        await message.react("✅");
-    } else {
-        await message.react("❌");
+    const auth = await getSheetsClientCached();
+    if (!auth) return;
+
+    const sheets = google.sheets({ version: "v4", auth });
+    const { row } = await findRowSmart(sheets, spreadsheetId, sheetName, name);
+    
+    const data = [];
+
+    // 1. บันทึก ชื่อ, วันที่, เวลา (ช่อง C, D, E)
+    data.push({
+        range: `${sheetName}!C${row}:E${row}`,
+        values: [[name, date, time]],
+    });
+
+    // 2. บันทึก ID (ช่อง G)
+    if (id) {
+        data.push({ range: `${sheetName}!G${row}`, values: [[id]] });
+    }
+
+    if (data.length === 0) return;
+
+    try {
+        await sheets.spreadsheets.values.batchUpdate({
+            spreadsheetId,
+            resource: { valueInputOption: "USER_ENTERED", data },
+        });
+        console.log(`✔ Updated Row ${row} → ${name} [${date}]`);
+        return true;
+    } catch (err) {
+        console.error("❌ BatchUpdate Error:", err);
+        return false;
     }
 }
 
@@ -102,20 +137,53 @@ function initializeLogListener(client) {
     const LOG_CHANNEL = "1445640443986710548";
 
     client.on("messageCreate", message => {
-        // ถ้าข้อความมาจากบอทตัวอื่น (เช่น Webhook รายงานเข้าเวร) ให้เอาบรรทัดข้างล่างออก
-        // if (message.author.bot) return; 
-
         if (message.channel.id !== LOG_CHANNEL) return;
-
-        process.nextTick(() => {
-            handleLog(message).catch(err => console.error("❌ handleLog error:", err));
-        });
+        process.nextTick(() => handleLog(message).catch(err => console.error("❌ handleLog error:", err)));
     });
+
+    async function handleLog(message) {
+        console.log("\n📥 NEW MESSAGE IN LOG CHANNEL");
+        
+        let lines = [];
+        if (message.content) lines.push(message.content);
+        
+        // รองรับข้อมูลที่อยู่ใน Embed
+        if (message.embeds && message.embeds.length > 0) {
+            message.embeds.forEach(embed => {
+                const e = embed.data || embed;
+                if (e.title) lines.push(e.title);
+                if (e.description) lines.push(e.description);
+                if (e.fields) {
+                    e.fields.forEach(f => {
+                        if (f) {
+                            lines.push(f.name);
+                            lines.push(f.value);
+                        }
+                    });
+                }
+            });
+        }
+
+        const text = lines.join("\n");
+        const { name, date, time, id } = extractMinimal(text);
+
+        if (!name || !date || !time) {
+            return console.log("❌ DATA INCOMPLETE (Name, Date, or Time missing)");
+        }
+
+        console.log("🟩 PROCESSING:", name);
+        const success = await saveLog(name, date, time, id);
+        
+        if (success) {
+            console.log("✔ DONE");
+            await message.react("✅").catch(() => {});
+        } else {
+            await message.react("❌").catch(() => {});
+        }
+    }
 }
 
-// ==========================================
-// 🚀 หัวใจสำคัญ: ส่งออกฟังก์ชันไปให้ index.js ใช้
-// ==========================================
+// Export เพื่อใช้ใน index.js
 module.exports = { 
     saveLog, 
     initializeLogListener 
